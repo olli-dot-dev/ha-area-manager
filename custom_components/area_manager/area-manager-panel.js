@@ -34,6 +34,9 @@ const TRANSLATIONS = {
     errorSave: (msg) => `Fehler beim Speichern: ${msg}`,
     errorDelete: (msg) => `Fehler beim Löschen: ${msg}`,
     colEntities: "Entitäten",
+    expandEntities: "Entitäten einblenden",
+    collapseEntities: "Entitäten ausblenden",
+    entityCount: (n) => `${n} Entität${n !== 1 ? "en" : ""}`,
     dlgManufacturer: "Hersteller",
     dlgModel: "Modell",
     dlgIntegration: "Integration",
@@ -79,6 +82,9 @@ const TRANSLATIONS = {
     errorSave: (msg) => `Error saving: ${msg}`,
     errorDelete: (msg) => `Error deleting device: ${msg}`,
     colEntities: "Entities",
+    expandEntities: "Show entities",
+    collapseEntities: "Hide entities",
+    entityCount: (n) => `${n} ${n !== 1 ? "entities" : "entity"}`,
     dlgManufacturer: "Manufacturer",
     dlgModel: "Model",
     dlgIntegration: "Integration",
@@ -108,6 +114,7 @@ class AreaManagerPanel extends HTMLElement {
     this._filterText = "";
     this._filterManufacturer = "";
     this._filterDomain = "";
+    this._entitiesExpanded = false;
   }
 
   _t(key, ...args) {
@@ -364,15 +371,18 @@ class AreaManagerPanel extends HTMLElement {
 
       const devEntities = this._entities.filter((e) => e.device_id === d.id);
       const entitiesText = devEntities.map((e) => e.name || e.original_name || e.entity_id).join(" ");
-      const entityCell = `<td class="cell-entities">${
-        devEntities.map((e) => {
-          const name = e.name || e.original_name;
-          return `<div class="entity-row">
-            ${name ? `<span class="entity-row-name">${name}</span>` : ""}
-            <span class="entity-row-id">${e.entity_id}</span>
-          </div>`;
-        }).join("")
-      }</td>`;
+      const entityCell = `<td class="cell-entities">
+        <span class="entity-count">${this._t("entityCount", devEntities.length)}</span>
+        <div class="entity-details">${
+          devEntities.map((e) => {
+            const name = e.name || e.original_name;
+            return `<div class="entity-row">
+              ${name ? `<span class="entity-row-name">${name}</span>` : ""}
+              <span class="entity-row-id">${e.entity_id}</span>
+            </div>`;
+          }).join("")
+        }</div>
+      </td>`;
 
       const actionCell = isConfirming
         ? `<td class="cell-area cell-confirm" colspan="2">
@@ -423,15 +433,18 @@ class AreaManagerPanel extends HTMLElement {
 
       const devEntities = this._entities.filter((e) => e.device_id === d.id);
       const entitiesText = devEntities.map((e) => e.name || e.original_name || e.entity_id).join(" ");
-      const entityCell = `<td class="cell-entities">${
-        devEntities.map((e) => {
-          const name = e.name || e.original_name;
-          return `<div class="entity-row">
-            ${name ? `<span class="entity-row-name">${name}</span>` : ""}
-            <span class="entity-row-id">${e.entity_id}</span>
-          </div>`;
-        }).join("")
-      }</td>`;
+      const entityCell = `<td class="cell-entities">
+        <span class="entity-count">${this._t("entityCount", devEntities.length)}</span>
+        <div class="entity-details">${
+          devEntities.map((e) => {
+            const name = e.name || e.original_name;
+            return `<div class="entity-row">
+              ${name ? `<span class="entity-row-name">${name}</span>` : ""}
+              <span class="entity-row-id">${e.entity_id}</span>
+            </div>`;
+          }).join("")
+        }</div>
+      </td>`;
 
       return `
         <tr class="device-row" data-device-id="${d.id}" data-entities="${entitiesText}">
@@ -581,12 +594,17 @@ class AreaManagerPanel extends HTMLElement {
         .device-row:not(:last-child) td { border-bottom: 1px solid var(--divider-color, #e0e0e0); }
         .device-row:hover { background: var(--secondary-background-color, #f5f5f5); }
         .device-row--confirming { background: rgba(244,67,54,0.06); }
+        .device-row td { vertical-align: top; }
         .cell-name { padding: 10px 16px; }
         .cell-integration { padding: 10px 16px; width: 110px; }
         .cell-entities { padding: 8px 16px; width: 220px; }
         .cell-area { padding: 10px 16px; width: 190px; }
         .cell-actions { padding: 10px 12px; width: 220px; white-space: nowrap; }
         .cell-confirm { width: 420px; }
+        .entity-count { font-size: 0.85em; color: var(--secondary-text-color, #888); }
+        .entity-details { display: none; }
+        table.entities-expanded .entity-details { display: block; }
+        table.entities-expanded .entity-count { display: none; }
         .entity-row { line-height: 1.35; margin-bottom: 3px; }
         .entity-row:last-child { margin-bottom: 0; }
         .entity-row-name { display: block; font-size: 0.88em; }
@@ -625,6 +643,7 @@ class AreaManagerPanel extends HTMLElement {
         .btn-confirm-no { background: transparent; border: 1px solid var(--divider-color, #ccc); color: var(--primary-text-color); }
         .btn-save-all { background: var(--primary-color, #03a9f4); color: var(--text-primary-color, #fff); padding: 9px 20px; }
         .btn-reload { background: transparent; border: 1px solid var(--divider-color, #ccc); color: var(--primary-text-color); padding: 8px 16px; }
+        .btn-toggle-entities { background: transparent; border: 1px solid var(--divider-color, #ccc); color: var(--primary-text-color); padding: 8px 16px; }
         .loading { text-align: center; padding: 48px 0; color: var(--secondary-text-color, #888); }
         .cell-name, .cell-integration { cursor: pointer; }
         /* Device detail dialog */
@@ -738,6 +757,9 @@ class AreaManagerPanel extends HTMLElement {
             ${this._saving ? this._t("saving") : this._t("saveAll", pendingCount)}
           </button>
           <button class="btn-reload" id="reload">${this._t("reload")}</button>
+          <button class="btn-toggle-entities" id="toggle-entities">
+            ${this._entitiesExpanded ? this._t("collapseEntities") : this._t("expandEntities")}
+          </button>
         </div>
         <div class="empty-filter" id="empty-filter">${this._t("noFilterMatch")}</div>
         <table>
@@ -858,6 +880,22 @@ class AreaManagerPanel extends HTMLElement {
           this._load();
         });
       }
+
+      const toggleEntities = this.shadowRoot.getElementById("toggle-entities");
+      if (toggleEntities) {
+        toggleEntities.addEventListener("click", () => {
+          this._entitiesExpanded = !this._entitiesExpanded;
+          const table = this.shadowRoot.querySelector("table");
+          if (table) table.classList.toggle("entities-expanded", this._entitiesExpanded);
+          toggleEntities.textContent = this._entitiesExpanded
+            ? this._t("collapseEntities")
+            : this._t("expandEntities");
+        });
+      }
+
+      // Restore expand state after re-render
+      const table = this.shadowRoot.querySelector("table");
+      if (table && this._entitiesExpanded) table.classList.add("entities-expanded");
 
       this._bindFilterListeners();
       this._applyFilter();
