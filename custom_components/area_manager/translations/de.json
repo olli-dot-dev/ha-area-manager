@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Area Manager einrichten",
+        "description": "Fügt ein Seitenleistenpanel hinzu, über das du Geräten ohne Bereich schnell einen Bereich zuweisen kannst."
+      }
+    },
+    "abort": {
+      "already_configured": "Area Manager ist bereits eingerichtet."
+    }
+  }
+}
