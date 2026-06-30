@@ -33,6 +33,7 @@ const TRANSLATIONS = {
     errorLoad: (msg) => `Fehler beim Laden der Daten: ${msg}`,
     errorSave: (msg) => `Fehler beim Speichern: ${msg}`,
     errorDelete: (msg) => `Fehler beim Löschen: ${msg}`,
+    colEntities: "Entitäten",
     dlgManufacturer: "Hersteller",
     dlgModel: "Modell",
     dlgIntegration: "Integration",
@@ -77,6 +78,7 @@ const TRANSLATIONS = {
     errorLoad: (msg) => `Error loading data: ${msg}`,
     errorSave: (msg) => `Error saving: ${msg}`,
     errorDelete: (msg) => `Error deleting device: ${msg}`,
+    colEntities: "Entities",
     dlgManufacturer: "Manufacturer",
     dlgModel: "Model",
     dlgIntegration: "Integration",
@@ -95,6 +97,7 @@ class AreaManagerPanel extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this._devices = [];
     this._areas = [];
+    this._entities = [];
     this._ignoredIds = new Set();
     this._pending = {};
     this._saving = false;
@@ -126,13 +129,15 @@ class AreaManagerPanel extends HTMLElement {
     this._error = null;
     this._render();
     try {
-      const [devices, areas, ignoredIds] = await Promise.all([
+      const [devices, areas, entities, ignoredIds] = await Promise.all([
         this._hass.callWS({ type: "config/device_registry/list" }),
         this._hass.callWS({ type: "config/area_registry/list" }),
+        this._hass.callWS({ type: "config/entity_registry/list" }),
         this._hass.callWS({ type: "area_manager/get_ignored" }),
       ]);
       this._devices = devices;
       this._areas = areas.slice().sort((a, b) => a.name.localeCompare(b.name));
+      this._entities = entities;
       this._ignoredIds = new Set(ignoredIds);
     } catch (e) {
       this._error = this._t("errorLoad", e.message);
@@ -268,27 +273,21 @@ class AreaManagerPanel extends HTMLElement {
       window.dispatchEvent(new CustomEvent("location-changed", { bubbles: true }));
     });
 
-    // Load entities asynchronously
-    try {
-      const all = await this._hass.callWS({ type: "config/entity_registry/list" });
-      const entities = all.filter((e) => e.device_id === device.id);
-      dlg.querySelector("#dlg-loading").style.display = "none";
-      if (entities.length === 0) {
-        dlg.querySelector("#dlg-empty-entities").style.display = "";
-      } else {
-        const list = dlg.querySelector("#dlg-entity-list");
-        list.style.display = "";
-        list.innerHTML = entities.map((e) => {
-          const name = e.name || e.original_name;
-          return `<li>
-            ${name ? `<span class="dlg-entity-name">${name}</span>` : ""}
-            <span class="dlg-entity-id">${e.entity_id}</span>
-          </li>`;
-        }).join("");
-      }
-    } catch (_) {
-      dlg.querySelector("#dlg-loading").style.display = "none";
+    // Use already-loaded entity data
+    const entities = this._entities.filter((e) => e.device_id === device.id);
+    dlg.querySelector("#dlg-loading").style.display = "none";
+    if (entities.length === 0) {
       dlg.querySelector("#dlg-empty-entities").style.display = "";
+    } else {
+      const list = dlg.querySelector("#dlg-entity-list");
+      list.style.display = "";
+      list.innerHTML = entities.map((e) => {
+        const name = e.name || e.original_name;
+        return `<li>
+          ${name ? `<span class="dlg-entity-name">${name}</span>` : ""}
+          <span class="dlg-entity-id">${e.entity_id}</span>
+        </li>`;
+      }).join("");
     }
   }
 
@@ -302,7 +301,8 @@ class AreaManagerPanel extends HTMLElement {
       const matchText =
         !text ||
         (row.dataset.name || "").toLowerCase().includes(text) ||
-        (row.dataset.sub || "").toLowerCase().includes(text);
+        (row.dataset.sub || "").toLowerCase().includes(text) ||
+        (row.dataset.entities || "").toLowerCase().includes(text);
       const matchMfr = !mfr || row.dataset.manufacturer === mfr;
       const matchDomain = !domain || row.dataset.domain === domain;
 
@@ -362,6 +362,18 @@ class AreaManagerPanel extends HTMLElement {
       const selected = this._pending[d.id] || "";
       const isConfirming = this._confirmDelete === d.id;
 
+      const devEntities = this._entities.filter((e) => e.device_id === d.id);
+      const entitiesText = devEntities.map((e) => e.name || e.original_name || e.entity_id).join(" ");
+      const entityCell = `<td class="cell-entities">${
+        devEntities.map((e) => {
+          const name = e.name || e.original_name;
+          return `<div class="entity-row">
+            ${name ? `<span class="entity-row-name">${name}</span>` : ""}
+            <span class="entity-row-id">${e.entity_id}</span>
+          </div>`;
+        }).join("")
+      }</td>`;
+
       const actionCell = isConfirming
         ? `<td class="cell-area cell-confirm" colspan="2">
             <span class="confirm-text">${this._t("confirmDelete")}</span>
@@ -386,7 +398,8 @@ class AreaManagerPanel extends HTMLElement {
             data-name="${label}"
             data-manufacturer="${d.manufacturer || ""}"
             data-domain="${domain}"
-            data-sub="${sub}">
+            data-sub="${sub}"
+            data-entities="${entitiesText}">
           <td class="cell-name">
             <div class="device-name">${label}</div>
             ${sub ? `<div class="device-sub">${sub}</div>` : ""}
@@ -394,6 +407,7 @@ class AreaManagerPanel extends HTMLElement {
           <td class="cell-integration">
             ${domain ? `<span class="domain-chip">${domain}</span>` : `<span class="domain-chip muted">—</span>`}
           </td>
+          ${entityCell}
           ${actionCell}
         </tr>`;
     }).join("");
@@ -407,8 +421,20 @@ class AreaManagerPanel extends HTMLElement {
       const area = this._areas.find((a) => a.area_id === d.area_id);
       const areaLabel = area ? area.name : this._t("noArea");
 
+      const devEntities = this._entities.filter((e) => e.device_id === d.id);
+      const entitiesText = devEntities.map((e) => e.name || e.original_name || e.entity_id).join(" ");
+      const entityCell = `<td class="cell-entities">${
+        devEntities.map((e) => {
+          const name = e.name || e.original_name;
+          return `<div class="entity-row">
+            ${name ? `<span class="entity-row-name">${name}</span>` : ""}
+            <span class="entity-row-id">${e.entity_id}</span>
+          </div>`;
+        }).join("")
+      }</td>`;
+
       return `
-        <tr class="device-row" data-device-id="${d.id}">
+        <tr class="device-row" data-device-id="${d.id}" data-entities="${entitiesText}">
           <td class="cell-name">
             <div class="device-name">${label}</div>
             ${sub ? `<div class="device-sub">${sub}</div>` : ""}
@@ -416,6 +442,7 @@ class AreaManagerPanel extends HTMLElement {
           <td class="cell-integration">
             ${domain ? `<span class="domain-chip">${domain}</span>` : `<span class="domain-chip muted">—</span>`}
           </td>
+          ${entityCell}
           <td class="cell-area">
             <span class="area-label ${!d.area_id ? "muted" : ""}">${areaLabel}</span>
           </td>
@@ -555,10 +582,15 @@ class AreaManagerPanel extends HTMLElement {
         .device-row:hover { background: var(--secondary-background-color, #f5f5f5); }
         .device-row--confirming { background: rgba(244,67,54,0.06); }
         .cell-name { padding: 10px 16px; }
-        .cell-integration { padding: 10px 16px; width: 120px; }
-        .cell-area { padding: 10px 16px; width: 200px; }
+        .cell-integration { padding: 10px 16px; width: 110px; }
+        .cell-entities { padding: 8px 16px; width: 220px; }
+        .cell-area { padding: 10px 16px; width: 190px; }
         .cell-actions { padding: 10px 12px; width: 220px; white-space: nowrap; }
         .cell-confirm { width: 420px; }
+        .entity-row { line-height: 1.35; margin-bottom: 3px; }
+        .entity-row:last-child { margin-bottom: 0; }
+        .entity-row-name { display: block; font-size: 0.88em; }
+        .entity-row-id { display: block; font-size: 0.78em; font-family: monospace; color: var(--secondary-text-color, #888); }
         .device-name { font-weight: 500; }
         .device-sub { font-size: 0.82em; color: var(--secondary-text-color, #888); margin-top: 2px; }
         .domain-chip {
@@ -712,6 +744,7 @@ class AreaManagerPanel extends HTMLElement {
           <thead><tr>
             <th>${this._t("colDevice")}</th>
             <th>${this._t("colIntegration")}</th>
+            <th>${this._t("colEntities")}</th>
             <th>${this._t("colArea")}</th>
             <th>${this._t("colActions")}</th>
           </tr></thead>
@@ -725,6 +758,7 @@ class AreaManagerPanel extends HTMLElement {
           <thead><tr>
             <th>${this._t("colDevice")}</th>
             <th>${this._t("colIntegration")}</th>
+            <th>${this._t("colEntities")}</th>
             <th>${this._t("colCurrentArea")}</th>
             <th>${this._t("colActions")}</th>
           </tr></thead>
