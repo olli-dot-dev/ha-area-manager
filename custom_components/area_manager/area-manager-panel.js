@@ -33,6 +33,15 @@ const TRANSLATIONS = {
     errorLoad: (msg) => `Fehler beim Laden der Daten: ${msg}`,
     errorSave: (msg) => `Fehler beim Speichern: ${msg}`,
     errorDelete: (msg) => `Fehler beim Löschen: ${msg}`,
+    dlgManufacturer: "Hersteller",
+    dlgModel: "Modell",
+    dlgIntegration: "Integration",
+    dlgArea: "Bereich",
+    dlgEntities: "Entitäten",
+    dlgNoEntities: "Keine Entitäten vorhanden.",
+    dlgGoToDevice: "Zur Geräteseite",
+    dlgClose: "Schließen",
+    dlgLoading: "Lade Details…",
   },
   en: {
     title: "Area Manager",
@@ -68,6 +77,15 @@ const TRANSLATIONS = {
     errorLoad: (msg) => `Error loading data: ${msg}`,
     errorSave: (msg) => `Error saving: ${msg}`,
     errorDelete: (msg) => `Error deleting device: ${msg}`,
+    dlgManufacturer: "Manufacturer",
+    dlgModel: "Model",
+    dlgIntegration: "Integration",
+    dlgArea: "Area",
+    dlgEntities: "Entities",
+    dlgNoEntities: "No entities.",
+    dlgGoToDevice: "Go to device page",
+    dlgClose: "Close",
+    dlgLoading: "Loading details…",
   },
 };
 
@@ -207,6 +225,73 @@ class AreaManagerPanel extends HTMLElement {
     this._render();
   }
 
+  async _showDeviceDetail(device) {
+    // Remove any existing dialog
+    const existing = this.shadowRoot.getElementById("area-mgr-dlg");
+    if (existing) existing.remove();
+
+    const label = device.name_by_user || device.name || device.id;
+    const domain = device.identifiers?.[0]?.[0] ?? "—";
+    const areaName = this._areas.find((a) => a.area_id === device.area_id)?.name
+      || this._t("noArea");
+
+    const dlg = document.createElement("dialog");
+    dlg.id = "area-mgr-dlg";
+    dlg.innerHTML = `
+      <div class="dlg-header">
+        <h2 class="dlg-title">${label}</h2>
+        <button class="dlg-close" id="dlg-close" title="${this._t("dlgClose")}">✕</button>
+      </div>
+      <div class="dlg-body">
+        <dl class="dlg-grid">
+          ${device.manufacturer ? `<dt>${this._t("dlgManufacturer")}</dt><dd>${device.manufacturer}</dd>` : ""}
+          ${device.model ? `<dt>${this._t("dlgModel")}</dt><dd>${device.model}</dd>` : ""}
+          <dt>${this._t("dlgIntegration")}</dt><dd><span class="dlg-chip">${domain}</span></dd>
+          <dt>${this._t("dlgArea")}</dt><dd>${areaName}</dd>
+        </dl>
+        <p class="dlg-section">${this._t("dlgEntities")}</p>
+        <p class="dlg-loading" id="dlg-loading">${this._t("dlgLoading")}</p>
+        <ul class="dlg-entity-list" id="dlg-entity-list" style="display:none"></ul>
+        <p class="dlg-empty-entities" id="dlg-empty-entities" style="display:none">${this._t("dlgNoEntities")}</p>
+        <button class="dlg-nav-btn" id="dlg-nav">${this._t("dlgGoToDevice")} ↗</button>
+      </div>`;
+
+    this.shadowRoot.appendChild(dlg);
+    dlg.showModal();
+
+    const close = () => { dlg.close(); dlg.remove(); };
+    dlg.querySelector("#dlg-close").addEventListener("click", close);
+    dlg.addEventListener("click", (e) => { if (e.target === dlg) close(); });
+    dlg.querySelector("#dlg-nav").addEventListener("click", () => {
+      close();
+      history.pushState(null, "", `/config/devices/device/${device.id}`);
+      window.dispatchEvent(new CustomEvent("location-changed", { bubbles: true }));
+    });
+
+    // Load entities asynchronously
+    try {
+      const all = await this._hass.callWS({ type: "config/entity_registry/list" });
+      const entities = all.filter((e) => e.device_id === device.id);
+      dlg.querySelector("#dlg-loading").style.display = "none";
+      if (entities.length === 0) {
+        dlg.querySelector("#dlg-empty-entities").style.display = "";
+      } else {
+        const list = dlg.querySelector("#dlg-entity-list");
+        list.style.display = "";
+        list.innerHTML = entities.map((e) => {
+          const name = e.name || e.original_name;
+          return `<li>
+            ${name ? `<span class="dlg-entity-name">${name}</span>` : ""}
+            <span class="dlg-entity-id">${e.entity_id}</span>
+          </li>`;
+        }).join("");
+      }
+    } catch (_) {
+      dlg.querySelector("#dlg-loading").style.display = "none";
+      dlg.querySelector("#dlg-empty-entities").style.display = "";
+    }
+  }
+
   _applyFilter() {
     const text = this._filterText.toLowerCase().trim();
     const mfr = this._filterManufacturer;
@@ -297,6 +382,7 @@ class AreaManagerPanel extends HTMLElement {
 
       return `
         <tr class="device-row${isConfirming ? " device-row--confirming" : ""}"
+            data-device-id="${d.id}"
             data-name="${label}"
             data-manufacturer="${d.manufacturer || ""}"
             data-domain="${domain}"
@@ -322,7 +408,7 @@ class AreaManagerPanel extends HTMLElement {
       const areaLabel = area ? area.name : this._t("noArea");
 
       return `
-        <tr class="device-row">
+        <tr class="device-row" data-device-id="${d.id}">
           <td class="cell-name">
             <div class="device-name">${label}</div>
             ${sub ? `<div class="device-sub">${sub}</div>` : ""}
@@ -508,6 +594,95 @@ class AreaManagerPanel extends HTMLElement {
         .btn-save-all { background: var(--primary-color, #03a9f4); color: var(--text-primary-color, #fff); padding: 9px 20px; }
         .btn-reload { background: transparent; border: 1px solid var(--divider-color, #ccc); color: var(--primary-text-color); padding: 8px 16px; }
         .loading { text-align: center; padding: 48px 0; color: var(--secondary-text-color, #888); }
+        .cell-name, .cell-integration { cursor: pointer; }
+        /* Device detail dialog */
+        #area-mgr-dlg {
+          border: none;
+          border-radius: 12px;
+          padding: 0;
+          max-width: 560px;
+          width: 90vw;
+          max-height: 82vh;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.28);
+          background: var(--card-background-color, #fff);
+          color: var(--primary-text-color);
+          font-family: var(--paper-font-body1_-_font-family, Roboto, sans-serif);
+        }
+        #area-mgr-dlg::backdrop { background: rgba(0,0,0,0.48); }
+        .dlg-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 16px 20px;
+          border-bottom: 1px solid var(--divider-color, #e0e0e0);
+          flex-shrink: 0;
+        }
+        .dlg-title { margin: 0; font-size: 1.15em; font-weight: 500; }
+        .dlg-close {
+          background: none;
+          border: none;
+          font-size: 1.3em;
+          line-height: 1;
+          cursor: pointer;
+          color: var(--secondary-text-color, #888);
+          padding: 4px 8px;
+          border-radius: 4px;
+        }
+        .dlg-close:hover { background: var(--secondary-background-color, #f0f0f0); }
+        .dlg-body { overflow-y: auto; padding: 16px 20px; flex: 1; }
+        .dlg-grid {
+          display: grid;
+          grid-template-columns: auto 1fr;
+          gap: 6px 16px;
+          margin: 0 0 20px;
+          font-size: 0.93em;
+        }
+        .dlg-grid dt { color: var(--secondary-text-color, #888); font-size: 0.88em; align-self: center; margin: 0; }
+        .dlg-grid dd { margin: 0; }
+        .dlg-chip {
+          display: inline-block;
+          background: var(--secondary-background-color, #f0f0f0);
+          color: var(--secondary-text-color, #555);
+          border-radius: 10px;
+          padding: 1px 9px;
+          font-size: 0.85em;
+          font-family: monospace;
+        }
+        .dlg-section {
+          font-size: 0.82em;
+          font-weight: 500;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          color: var(--secondary-text-color, #888);
+          margin: 0 0 8px;
+        }
+        .dlg-loading, .dlg-empty-entities { color: var(--secondary-text-color, #888); font-size: 0.9em; margin: 0 0 16px; }
+        .dlg-entity-list { list-style: none; padding: 0; margin: 0 0 20px; }
+        .dlg-entity-list li {
+          display: flex;
+          flex-direction: column;
+          gap: 1px;
+          padding: 7px 0;
+          border-bottom: 1px solid var(--divider-color, #e8e8e8);
+        }
+        .dlg-entity-list li:last-child { border-bottom: none; }
+        .dlg-entity-name { font-size: 0.9em; font-weight: 500; }
+        .dlg-entity-id { font-family: monospace; font-size: 0.82em; color: var(--secondary-text-color, #777); }
+        .dlg-nav-btn {
+          display: inline-block;
+          background: none;
+          border: 1px solid var(--primary-color, #03a9f4);
+          color: var(--primary-color, #03a9f4);
+          padding: 7px 14px;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 0.88em;
+          font-weight: 500;
+        }
+        .dlg-nav-btn:hover { background: rgba(3,169,244,0.08); }
       </style>`;
 
     const unassignedContent = unassigned.length === 0
@@ -659,6 +834,18 @@ class AreaManagerPanel extends HTMLElement {
       this.shadowRoot.querySelectorAll(".btn-unignore").forEach((btn) =>
         btn.addEventListener("click", (e) => this._unignoreDevice(e.target.dataset.device))
       );
+    }
+
+    // Row click → device detail dialog (both views)
+    const tbody = this.shadowRoot.querySelector("table tbody");
+    if (tbody) {
+      tbody.addEventListener("click", (e) => {
+        if (e.target.closest("button, select")) return;
+        const row = e.target.closest(".device-row[data-device-id]");
+        if (!row) return;
+        const device = this._devices.find((d) => d.id === row.dataset.deviceId);
+        if (device) this._showDeviceDetail(device);
+      });
     }
   }
 }
