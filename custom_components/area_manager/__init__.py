@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.components.panel_custom import async_register_panel
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -16,7 +17,9 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     panel_js = Path(__file__).parent / "area-manager-panel.js"
-    hass.http.register_static_path(_PANEL_JS_URL, str(panel_js), cache_headers=False)
+    await hass.http.async_register_static_paths(
+        [StaticPathConfig(_PANEL_JS_URL, str(panel_js), cache_headers=False)]
+    )
 
     await async_register_panel(
         hass,
