@@ -22,7 +22,13 @@ A Home Assistant custom integration that adds a sidebar panel for finding device
 
 ## Installation
 
-### Via HACS (recommended)
+### One-click (recommended)
+
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=olli-dot-dev&repository=ha-area-manager&category=integration)
+
+Click the badge above to add this repository to HACS directly — it handles adding the custom repository and finding the integration for you. Then click **Download** and restart Home Assistant.
+
+### Via HACS (manual)
 
 1. Open HACS in your Home Assistant sidebar
 2. Go to **⋮ → Custom repositories**
