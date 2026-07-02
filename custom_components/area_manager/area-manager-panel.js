@@ -271,11 +271,13 @@ class AreaManagerPanel extends HTMLElement {
     this.shadowRoot.appendChild(dlg);
     dlg.showModal();
 
-    const close = () => { dlg.close(); dlg.remove(); };
-    dlg.querySelector("#dlg-close").addEventListener("click", close);
-    dlg.addEventListener("click", (e) => { if (e.target === dlg) close(); });
+    // Native close (button, backdrop click, Escape) always fires "close" — remove on that
+    // single event so Escape (which only triggers the browser default close()) is handled too.
+    dlg.addEventListener("close", () => dlg.remove());
+    dlg.querySelector("#dlg-close").addEventListener("click", () => dlg.close());
+    dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
     dlg.querySelector("#dlg-nav").addEventListener("click", () => {
-      close();
+      dlg.close();
       history.pushState(null, "", `/config/devices/device/${device.id}`);
       window.dispatchEvent(new CustomEvent("location-changed", { bubbles: true }));
     });
@@ -575,6 +577,7 @@ class AreaManagerPanel extends HTMLElement {
         .empty-filter { display: none; }
         table {
           width: 100%;
+          table-layout: fixed;
           border-collapse: collapse;
           background: var(--card-background-color, #fff);
           border-radius: 8px;
@@ -592,7 +595,7 @@ class AreaManagerPanel extends HTMLElement {
           border-bottom: 1px solid var(--divider-color, #e0e0e0);
         }
         .device-row:not(:last-child) td { border-bottom: 1px solid var(--divider-color, #e0e0e0); }
-        .device-row:hover { background: var(--secondary-background-color, #f5f5f5); }
+        .device-row:hover { background: var(--table-row-alternative-background-color, rgba(0, 0, 0, 0.06)); }
         .device-row--confirming { background: rgba(244,67,54,0.06); }
         .device-row td { vertical-align: top; }
         .cell-name { padding: 10px 16px; }
@@ -607,10 +610,10 @@ class AreaManagerPanel extends HTMLElement {
         table.entities-expanded .entity-count { display: none; }
         .entity-row { line-height: 1.35; margin-bottom: 3px; }
         .entity-row:last-child { margin-bottom: 0; }
-        .entity-row-name { display: block; font-size: 0.88em; }
-        .entity-row-id { display: block; font-size: 0.78em; font-family: monospace; color: var(--secondary-text-color, #888); }
-        .device-name { font-weight: 500; }
-        .device-sub { font-size: 0.82em; color: var(--secondary-text-color, #888); margin-top: 2px; }
+        .entity-row-name { display: block; font-size: 0.88em; overflow-wrap: anywhere; }
+        .entity-row-id { display: block; font-size: 0.78em; font-family: monospace; color: var(--secondary-text-color, #888); overflow-wrap: anywhere; }
+        .device-name { font-weight: 500; overflow-wrap: anywhere; }
+        .device-sub { font-size: 0.82em; color: var(--secondary-text-color, #888); margin-top: 2px; overflow-wrap: anywhere; }
         .domain-chip {
           display: inline-block;
           background: var(--secondary-background-color, #f0f0f0);
@@ -635,9 +638,9 @@ class AreaManagerPanel extends HTMLElement {
         button { padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85em; font-weight: 500; transition: opacity 0.15s; }
         button:disabled { opacity: 0.4; cursor: default; }
         .btn-assign { background: var(--primary-color, #03a9f4); color: var(--text-primary-color, #fff); margin-right: 4px; }
-        .btn-ignore { background: var(--secondary-background-color, #e8e8e8); color: var(--primary-text-color); margin-right: 4px; }
+        .btn-ignore { background: var(--secondary-background-color, #e8e8e8); color: var(--primary-text-color); border: 1px solid var(--divider-color, #ccc); margin-right: 4px; }
         .btn-delete { background: transparent; border: 1px solid var(--error-color, #f44336); color: var(--error-color, #f44336); }
-        .btn-unignore { background: var(--secondary-background-color, #e8e8e8); color: var(--primary-text-color); }
+        .btn-unignore { background: var(--secondary-background-color, #e8e8e8); color: var(--primary-text-color); border: 1px solid var(--divider-color, #ccc); }
         .confirm-text { font-size: 0.9em; margin-right: 8px; color: var(--error-color, #f44336); font-weight: 500; }
         .btn-confirm-yes { background: var(--error-color, #f44336); color: #fff; margin-right: 4px; }
         .btn-confirm-no { background: transparent; border: 1px solid var(--divider-color, #ccc); color: var(--primary-text-color); }
@@ -763,6 +766,13 @@ class AreaManagerPanel extends HTMLElement {
         </div>
         <div class="empty-filter" id="empty-filter">${this._t("noFilterMatch")}</div>
         <table>
+          <colgroup>
+            <col>
+            <col style="width:110px">
+            <col style="width:220px">
+            <col style="width:190px">
+            <col style="width:220px">
+          </colgroup>
           <thead><tr>
             <th>${this._t("colDevice")}</th>
             <th>${this._t("colIntegration")}</th>
@@ -777,6 +787,13 @@ class AreaManagerPanel extends HTMLElement {
       ? `<div class="empty">${this._t("ignoredEmpty")}</div>`
       : `
         <table>
+          <colgroup>
+            <col>
+            <col style="width:110px">
+            <col style="width:220px">
+            <col style="width:190px">
+            <col style="width:220px">
+          </colgroup>
           <thead><tr>
             <th>${this._t("colDevice")}</th>
             <th>${this._t("colIntegration")}</th>

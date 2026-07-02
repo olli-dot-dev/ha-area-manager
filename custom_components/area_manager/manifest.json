@@ -1,7 +1,7 @@
 {
   "domain": "area_manager",
   "name": "Area Manager",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "documentation": "https://github.com/YOUR_USERNAME/ha-area-manager",
   "issue_tracker": "https://github.com/YOUR_USERNAME/ha-area-manager/issues",
   "codeowners": [],
