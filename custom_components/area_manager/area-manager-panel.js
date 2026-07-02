@@ -575,8 +575,10 @@ class AreaManagerPanel extends HTMLElement {
           font-size: 1.1em;
         }
         .empty-filter { display: none; }
+        .table-scroll { width: 100%; overflow-x: auto; }
         table {
           width: 100%;
+          min-width: 820px;
           table-layout: fixed;
           border-collapse: collapse;
           background: var(--card-background-color, #fff);
@@ -602,7 +604,7 @@ class AreaManagerPanel extends HTMLElement {
         .cell-integration { padding: 10px 16px; width: 110px; }
         .cell-entities { padding: 8px 16px; width: 220px; }
         .cell-area { padding: 10px 16px; width: 190px; }
-        .cell-actions { padding: 10px 12px; width: 220px; white-space: nowrap; }
+        .cell-actions { padding: 10px 12px; width: 220px; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 4px; }
         .cell-confirm { width: 420px; }
         .entity-count { font-size: 0.85em; color: var(--secondary-text-color, #888); }
         .entity-details { display: none; }
@@ -765,7 +767,7 @@ class AreaManagerPanel extends HTMLElement {
           </button>
         </div>
         <div class="empty-filter" id="empty-filter">${this._t("noFilterMatch")}</div>
-        <table>
+        <div class="table-scroll"><table>
           <colgroup>
             <col>
             <col style="width:110px">
@@ -781,12 +783,12 @@ class AreaManagerPanel extends HTMLElement {
             <th>${this._t("colActions")}</th>
           </tr></thead>
           <tbody>${this._renderUnassignedRows(unassigned)}</tbody>
-        </table>`;
+        </table></div>`;
 
     const ignoredContent = ignored.length === 0
       ? `<div class="empty">${this._t("ignoredEmpty")}</div>`
       : `
-        <table>
+        <div class="table-scroll"><table>
           <colgroup>
             <col>
             <col style="width:110px">
@@ -802,7 +804,7 @@ class AreaManagerPanel extends HTMLElement {
             <th>${this._t("colActions")}</th>
           </tr></thead>
           <tbody>${this._renderIgnoredRows(ignored)}</tbody>
-        </table>`;
+        </table></div>`;
 
     this.shadowRoot.innerHTML = `
       ${CSS}
