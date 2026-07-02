@@ -399,9 +399,11 @@ class AreaManagerPanel extends HTMLElement {
             </select>
           </td>
           <td class="cell-actions">
+            <div class="actions-wrap">
             <button class="btn-assign" data-device="${d.id}" ${!selected ? "disabled" : ""}>${this._t("assign")}</button>
             <button class="btn-ignore" data-device="${d.id}">${this._t("ignore")}</button>
             <button class="btn-delete" data-device="${d.id}">${this._t("delete")}</button>
+            </div>
           </td>`;
 
       return `
@@ -604,7 +606,8 @@ class AreaManagerPanel extends HTMLElement {
         .cell-integration { padding: 10px 16px; width: 110px; }
         .cell-entities { padding: 8px 16px; width: 220px; }
         .cell-area { padding: 10px 16px; width: 190px; }
-        .cell-actions { padding: 10px 12px; width: 220px; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 4px; }
+        .cell-actions { padding: 10px 12px; width: 220px; }
+        .actions-wrap { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px; }
         .cell-confirm { width: 420px; }
         .entity-count { font-size: 0.85em; color: var(--secondary-text-color, #888); }
         .entity-details { display: none; }
@@ -769,11 +772,11 @@ class AreaManagerPanel extends HTMLElement {
         <div class="empty-filter" id="empty-filter">${this._t("noFilterMatch")}</div>
         <div class="table-scroll"><table>
           <colgroup>
-            <col>
-            <col style="width:110px">
-            <col style="width:220px">
-            <col style="width:190px">
-            <col style="width:220px">
+            <col style="width:32%">
+            <col style="width:10%">
+            <col style="width:20%">
+            <col style="width:18%">
+            <col style="width:20%">
           </colgroup>
           <thead><tr>
             <th>${this._t("colDevice")}</th>
@@ -790,11 +793,11 @@ class AreaManagerPanel extends HTMLElement {
       : `
         <div class="table-scroll"><table>
           <colgroup>
-            <col>
-            <col style="width:110px">
-            <col style="width:220px">
-            <col style="width:190px">
-            <col style="width:220px">
+            <col style="width:32%">
+            <col style="width:10%">
+            <col style="width:20%">
+            <col style="width:18%">
+            <col style="width:20%">
           </colgroup>
           <thead><tr>
             <th>${this._t("colDevice")}</th>
