@@ -1,9 +1,9 @@
 {
   "domain": "area_manager",
   "name": "Area Manager",
-  "version": "1.0.1",
-  "documentation": "https://github.com/YOUR_USERNAME/ha-area-manager",
-  "issue_tracker": "https://github.com/YOUR_USERNAME/ha-area-manager/issues",
+  "version": "2.0.0",
+  "documentation": "https://github.com/olli-dot-dev/ha-area-manager",
+  "issue_tracker": "https://github.com/olli-dot-dev/ha-area-manager/issues",
   "codeowners": [],
   "requirements": [],
   "config_flow": true,

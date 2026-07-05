@@ -1,13 +1,25 @@
+<p align="center">
+  <img src="custom_components/area_manager/brand/logo.png" width="96" alt="Area Manager logo">
+</p>
+
 # Area Manager
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 
 A Home Assistant custom integration that adds a sidebar panel for finding devices without an area assignment and quickly assigning them — without navigating through multiple settings pages.
 
+📺 [Watch the walkthrough video](https://www.youtube.com/watch?v=EiAQ1txMXbM) · 📝 [Read the blog post](https://smarterkram.de/10894/bereiche-in-home-assistant-nachtraeglich-zuweisen/) (both in German)
+
+See [CHANGELOG.md](CHANGELOG.md) for release notes (English/Deutsch).
+
+![Area Manager screenshot](assets/screenshot.png)
+
 ## Features
 
 - **Overview** — lists all devices that have no area assigned yet
 - **Quick assignment** — pick an area from a dropdown and assign per device or save all at once
+- **Bulk assignment** — select multiple devices via checkbox and assign them all to one area at once; selection is preserved while filtering
+- **Assigned tab** — review devices that already have an area and correct misassignments, including unassigning back to "Without area"
 - **Filter bar** — search by device name, manufacturer, or model; filter by manufacturer or integration domain
 - **Device detail dialog** — click any row to open a detail popup with device info and its full entity list
 - **Ignore list** — mark devices that intentionally have no area (e.g. virtual or cloud-only devices); revisit and restore them at any time
@@ -63,6 +75,14 @@ The **Area Manager** entry appears in the sidebar immediately.
 | 4 | Select an area in the dropdown for one or more devices |
 | 5 | Click **Assign** per row, or **Save all (n)** for all pending changes at once |
 
+### Bulk assignment
+
+Tick the checkbox on one or more rows (or the header checkbox to select all currently visible/filtered rows) to reveal a sticky bar at the bottom with an area dropdown, an **Assign** button, and a **Clear selection** button. The selection is kept even while you change the filter, so you can filter, select, filter again, and select more before assigning everyone at once. This works independently of — and alongside — the per-row dropdown.
+
+### Reviewing already-assigned devices
+
+Open the **Assigned** tab to see every device that already has an area. Each row's dropdown is pre-filled with its current area; the **Assign** button only activates once you actually pick a different value. Choose **"— No area —"** to unassign a device (it moves back to the **Without area** tab). The same filter bar and bulk-selection mechanic from the **Without area** tab are available here too.
+
 ### Device detail
 
 Click anywhere on a row (outside buttons and the dropdown) to open the device detail popup. It shows manufacturer, model, integration, current area, and all entities belonging to that device. A **Go to device page** button navigates to HA's built-in device page.
@@ -81,6 +101,7 @@ Click **Delete** on a row to remove the device from the HA device registry. An i
 |-----|----------|
 | **Without area (n)** | Devices with no area assigned and not ignored |
 | **Ignored (n)** | Devices explicitly excluded from the unassigned list |
+| **Assigned (n)** | Devices that already have an area, editable/correctable here |
 
 ## Supported languages
 

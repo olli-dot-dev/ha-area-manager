@@ -5,6 +5,7 @@ const TRANSLATIONS = {
     badge: (n) => `${n} ohne Bereich`,
     tabUnassigned: (n) => `Ohne Bereich (${n})`,
     tabIgnored: (n) => `Ignoriert (${n})`,
+    tabAssigned: (n) => `Zugewiesen (${n})`,
     searchPlaceholder: "Gerät, Hersteller oder Modell suchen…",
     allManufacturers: "Alle Hersteller",
     allIntegrations: "Alle Integrationen",
@@ -20,6 +21,10 @@ const TRANSLATIONS = {
     confirmYes: "Ja, löschen",
     confirmNo: "Abbrechen",
     chooseArea: "— Bereich wählen —",
+    unassignOption: "— Kein Bereich —",
+    selectAll: "Alle auswählen",
+    bulkSelectedCount: (n) => `${n} ausgewählt`,
+    bulkClear: "Auswahl aufheben",
     colDevice: "Gerät",
     colIntegration: "Integration",
     colArea: "Bereich zuweisen",
@@ -28,6 +33,7 @@ const TRANSLATIONS = {
     noArea: "Kein Bereich",
     allDone: "Alle Geräte haben bereits einen Bereich. 🎉",
     ignoredEmpty: "Keine ignorierten Geräte.",
+    assignedEmpty: "Noch keine Geräte mit Bereich.",
     noFilterMatch: "Keine Geräte entsprechen dem Filter.",
     loading: "Lade Daten…",
     errorLoad: (msg) => `Fehler beim Laden der Daten: ${msg}`,
@@ -53,6 +59,7 @@ const TRANSLATIONS = {
     badge: (n) => `${n} without area`,
     tabUnassigned: (n) => `Without area (${n})`,
     tabIgnored: (n) => `Ignored (${n})`,
+    tabAssigned: (n) => `Assigned (${n})`,
     searchPlaceholder: "Search by device, manufacturer or model…",
     allManufacturers: "All manufacturers",
     allIntegrations: "All integrations",
@@ -68,6 +75,10 @@ const TRANSLATIONS = {
     confirmYes: "Yes, delete",
     confirmNo: "Cancel",
     chooseArea: "— Choose area —",
+    unassignOption: "— No area —",
+    selectAll: "Select all",
+    bulkSelectedCount: (n) => `${n} selected`,
+    bulkClear: "Clear selection",
     colDevice: "Device",
     colIntegration: "Integration",
     colArea: "Assign area",
@@ -76,6 +87,7 @@ const TRANSLATIONS = {
     noArea: "No area",
     allDone: "All devices already have an area. 🎉",
     ignoredEmpty: "No ignored devices.",
+    assignedEmpty: "No devices with an area yet.",
     noFilterMatch: "No devices match the filter.",
     loading: "Loading…",
     errorLoad: (msg) => `Error loading data: ${msg}`,
@@ -106,10 +118,11 @@ class AreaManagerPanel extends HTMLElement {
     this._entities = [];
     this._ignoredIds = new Set();
     this._pending = {};
+    this._selected = new Set();
     this._saving = false;
     this._loaded = false;
     this._error = null;
-    this._view = "unassigned"; // "unassigned" | "ignored"
+    this._view = "unassigned"; // "unassigned" | "ignored" | "assigned"
     this._confirmDelete = null;
     this._filterText = "";
     this._filterManufacturer = "";
@@ -165,6 +178,7 @@ class AreaManagerPanel extends HTMLElement {
 
   async _ignoreDevice(deviceId) {
     this._ignoredIds.add(deviceId);
+    this._selected.delete(deviceId);
     await this._saveIgnored();
     this._render();
   }
@@ -184,6 +198,7 @@ class AreaManagerPanel extends HTMLElement {
       });
       this._devices = this._devices.filter((d) => d.id !== deviceId);
       this._ignoredIds.delete(deviceId);
+      this._selected.delete(deviceId);
       await this._saveIgnored();
     } catch (e) {
       this._error = this._t("errorDelete", e.message);
@@ -191,9 +206,19 @@ class AreaManagerPanel extends HTMLElement {
     this._render();
   }
 
+  // The "no area" option in the assigned tab's dropdown uses this sentinel
+  // instead of an empty string, since empty string already means "nothing
+  // chosen yet" for the unassigned tab's placeholder option.
+  static UNASSIGN_SENTINEL = "__none__";
+
+  _resolveAreaId(rawValue) {
+    return rawValue === AreaManagerPanel.UNASSIGN_SENTINEL ? null : rawValue;
+  }
+
   async _saveDevice(deviceId) {
-    const areaId = this._pending[deviceId];
-    if (!areaId) return;
+    const raw = this._pending[deviceId];
+    if (!raw) return;
+    const areaId = this._resolveAreaId(raw);
     try {
       await this._hass.callWS({
         type: "config/device_registry/update",
@@ -201,6 +226,7 @@ class AreaManagerPanel extends HTMLElement {
         area_id: areaId,
       });
       delete this._pending[deviceId];
+      this._selected.delete(deviceId);
       const dev = this._devices.find((d) => d.id === deviceId);
       if (dev) dev.area_id = areaId;
       this._render();
@@ -210,14 +236,55 @@ class AreaManagerPanel extends HTMLElement {
     }
   }
 
+  // Excludes pending entries that match the device's current area (e.g. the
+  // user picked a different area in the "assigned" tab, then picked it back)
+  // so counts/save-all don't act on a no-op change.
+  _pendingEntries() {
+    return Object.entries(this._pending).filter(([id, v]) => {
+      if (!v) return false;
+      const dev = this._devices.find((d) => d.id === id);
+      const current = (dev && dev.area_id) || "";
+      return v !== current;
+    });
+  }
+
   async _saveAll() {
-    const toSave = Object.entries(this._pending).filter(([, v]) => v);
+    const toSave = this._pendingEntries();
     if (!toSave.length) return;
     this._saving = true;
     this._render();
     try {
       await Promise.all(
-        toSave.map(([deviceId, areaId]) =>
+        toSave.map(([deviceId, raw]) =>
+          this._hass.callWS({
+            type: "config/device_registry/update",
+            device_id: deviceId,
+            area_id: this._resolveAreaId(raw),
+          })
+        )
+      );
+      toSave.forEach(([deviceId, raw]) => {
+        delete this._pending[deviceId];
+        this._selected.delete(deviceId);
+        const dev = this._devices.find((d) => d.id === deviceId);
+        if (dev) dev.area_id = this._resolveAreaId(raw);
+      });
+    } catch (e) {
+      this._error = this._t("errorSave", e.message);
+    }
+    this._saving = false;
+    this._render();
+  }
+
+  async _bulkAssign(rawAreaId) {
+    if (!rawAreaId || this._selected.size === 0) return;
+    const areaId = this._resolveAreaId(rawAreaId);
+    const ids = [...this._selected];
+    this._saving = true;
+    this._render();
+    try {
+      await Promise.all(
+        ids.map((deviceId) =>
           this._hass.callWS({
             type: "config/device_registry/update",
             device_id: deviceId,
@@ -225,8 +292,9 @@ class AreaManagerPanel extends HTMLElement {
           })
         )
       );
-      toSave.forEach(([deviceId, areaId]) => {
+      ids.forEach((deviceId) => {
         delete this._pending[deviceId];
+        this._selected.delete(deviceId);
         const dev = this._devices.find((d) => d.id === deviceId);
         if (dev) dev.area_id = areaId;
       });
@@ -320,14 +388,81 @@ class AreaManagerPanel extends HTMLElement {
       if (show) visible++;
     });
 
-    const badge = this.shadowRoot.getElementById("badge");
-    if (badge) badge.textContent = this._t("badge", visible);
+    if (this._view === "unassigned") {
+      const badge = this.shadowRoot.getElementById("badge");
+      if (badge) badge.textContent = this._t("badge", visible);
+    }
 
     const emptyFilter = this.shadowRoot.getElementById("empty-filter");
     if (emptyFilter) emptyFilter.style.display = visible === 0 ? "" : "none";
 
     const clearBtn = this.shadowRoot.getElementById("clear-filter");
     if (clearBtn) clearBtn.style.display = (text || mfr || domain) ? "" : "none";
+
+    this._syncSelectAllCheckbox();
+  }
+
+  _syncSelectAllCheckbox() {
+    const selectAll = this.shadowRoot.getElementById("select-all");
+    if (!selectAll) return;
+    const visibleCheckboxes = [...this.shadowRoot.querySelectorAll(".device-row .row-checkbox")]
+      .filter((cb) => cb.closest(".device-row").style.display !== "none");
+    const checkedCount = visibleCheckboxes.filter((cb) => cb.checked).length;
+    selectAll.checked = visibleCheckboxes.length > 0 && checkedCount === visibleCheckboxes.length;
+    selectAll.indeterminate = checkedCount > 0 && checkedCount < visibleCheckboxes.length;
+  }
+
+  _updateBulkBar() {
+    const bar = this.shadowRoot.getElementById("bulk-bar");
+    if (bar) bar.style.display = this._selected.size === 0 ? "none" : "";
+    const count = this.shadowRoot.getElementById("bulk-count");
+    if (count) count.textContent = this._t("bulkSelectedCount", this._selected.size);
+    this._syncSelectAllCheckbox();
+  }
+
+  _bindBulkListeners() {
+    this.shadowRoot.querySelectorAll(".row-checkbox").forEach((cb) => {
+      cb.addEventListener("change", (e) => {
+        const id = e.target.dataset.device;
+        if (e.target.checked) this._selected.add(id);
+        else this._selected.delete(id);
+        this._updateBulkBar();
+      });
+    });
+
+    const selectAll = this.shadowRoot.getElementById("select-all");
+    if (selectAll) {
+      selectAll.addEventListener("change", (e) => {
+        const checked = e.target.checked;
+        this.shadowRoot.querySelectorAll(".device-row .row-checkbox").forEach((cb) => {
+          if (cb.closest(".device-row").style.display === "none") return;
+          cb.checked = checked;
+          if (checked) this._selected.add(cb.dataset.device);
+          else this._selected.delete(cb.dataset.device);
+        });
+        this._updateBulkBar();
+      });
+    }
+
+    const bulkAreaSelect = this.shadowRoot.getElementById("bulk-area-select");
+    const bulkAssign = this.shadowRoot.getElementById("bulk-assign");
+    if (bulkAreaSelect && bulkAssign) {
+      bulkAreaSelect.addEventListener("change", (e) => {
+        bulkAssign.disabled = !e.target.value;
+      });
+      bulkAssign.addEventListener("click", () => this._bulkAssign(bulkAreaSelect.value));
+    }
+
+    const bulkClear = this.shadowRoot.getElementById("bulk-clear");
+    if (bulkClear) {
+      bulkClear.addEventListener("click", () => {
+        this._selected.clear();
+        this.shadowRoot.querySelectorAll(".row-checkbox").forEach((cb) => { cb.checked = false; });
+        this._updateBulkBar();
+      });
+    }
+
+    this._updateBulkBar();
   }
 
   _bindFilterListeners() {
@@ -359,21 +494,9 @@ class AreaManagerPanel extends HTMLElement {
     }
   }
 
-  _renderUnassignedRows(unassigned) {
-    const areaOptions = this._areas
-      .map((a) => `<option value="${a.area_id}">${a.name}</option>`)
-      .join("");
-
-    return unassigned.map((d) => {
-      const label = d.name_by_user || d.name || d.id;
-      const sub = [d.manufacturer, d.model].filter(Boolean).join(" · ");
-      const domain = d.identifiers?.[0]?.[0] ?? "";
-      const selected = this._pending[d.id] || "";
-      const isConfirming = this._confirmDelete === d.id;
-
-      const devEntities = this._entities.filter((e) => e.device_id === d.id);
-      const entitiesText = devEntities.map((e) => e.name || e.original_name || e.entity_id).join(" ");
-      const entityCell = `<td class="cell-entities">
+  _renderEntityCell(device) {
+    const devEntities = this._entities.filter((e) => e.device_id === device.id);
+    return `<td class="cell-entities">
         <span class="entity-count">${this._t("entityCount", devEntities.length)}</span>
         <div class="entity-details">${
           devEntities.map((e) => {
@@ -385,6 +508,27 @@ class AreaManagerPanel extends HTMLElement {
           }).join("")
         }</div>
       </td>`;
+  }
+
+  _entitiesText(device) {
+    return this._entities
+      .filter((e) => e.device_id === device.id)
+      .map((e) => e.name || e.original_name || e.entity_id)
+      .join(" ");
+  }
+
+  _renderUnassignedRows(unassigned) {
+    const areaOptions = this._areas
+      .map((a) => `<option value="${a.area_id}">${a.name}</option>`)
+      .join("");
+
+    return unassigned.map((d) => {
+      const label = d.name_by_user || d.name || d.id;
+      const sub = [d.manufacturer, d.model].filter(Boolean).join(" · ");
+      const domain = d.identifiers?.[0]?.[0] ?? "";
+      const selected = this._pending[d.id] || "";
+      const isConfirming = this._confirmDelete === d.id;
+      const entitiesText = this._entitiesText(d);
 
       const actionCell = isConfirming
         ? `<td class="cell-area cell-confirm" colspan="2">
@@ -393,7 +537,7 @@ class AreaManagerPanel extends HTMLElement {
             <button class="btn-confirm-no" data-device="${d.id}">${this._t("confirmNo")}</button>
           </td>`
         : `<td class="cell-area">
-            <select class="area-select" data-device="${d.id}">
+            <select class="area-select" data-device="${d.id}" data-current-area="">
               <option value="">${this._t("chooseArea")}</option>
               ${areaOptions}
             </select>
@@ -414,6 +558,9 @@ class AreaManagerPanel extends HTMLElement {
             data-domain="${domain}"
             data-sub="${sub}"
             data-entities="${entitiesText}">
+          <td class="cell-checkbox">
+            <input type="checkbox" class="row-checkbox" data-device="${d.id}" ${this._selected.has(d.id) ? "checked" : ""}>
+          </td>
           <td class="cell-name">
             <div class="device-name">${label}</div>
             ${sub ? `<div class="device-sub">${sub}</div>` : ""}
@@ -421,8 +568,57 @@ class AreaManagerPanel extends HTMLElement {
           <td class="cell-integration">
             ${domain ? `<span class="domain-chip">${domain}</span>` : `<span class="domain-chip muted">—</span>`}
           </td>
-          ${entityCell}
+          ${this._renderEntityCell(d)}
           ${actionCell}
+        </tr>`;
+    }).join("");
+  }
+
+  _renderAssignedRows(assigned) {
+    return assigned.map((d) => {
+      const label = d.name_by_user || d.name || d.id;
+      const sub = [d.manufacturer, d.model].filter(Boolean).join(" · ");
+      const domain = d.identifiers?.[0]?.[0] ?? "";
+      const entitiesText = this._entitiesText(d);
+      const currentArea = d.area_id || "";
+      const pendingValue = this._pending[d.id];
+      const selectedValue = pendingValue !== undefined ? pendingValue : currentArea;
+      const isDirty = pendingValue !== undefined && pendingValue !== currentArea;
+
+      const areaOptions = this._areas
+        .map((a) => `<option value="${a.area_id}" ${a.area_id === selectedValue ? "selected" : ""}>${a.name}</option>`)
+        .join("");
+
+      return `
+        <tr class="device-row"
+            data-device-id="${d.id}"
+            data-name="${label}"
+            data-manufacturer="${d.manufacturer || ""}"
+            data-domain="${domain}"
+            data-sub="${sub}"
+            data-entities="${entitiesText}">
+          <td class="cell-checkbox">
+            <input type="checkbox" class="row-checkbox" data-device="${d.id}" ${this._selected.has(d.id) ? "checked" : ""}>
+          </td>
+          <td class="cell-name">
+            <div class="device-name">${label}</div>
+            ${sub ? `<div class="device-sub">${sub}</div>` : ""}
+          </td>
+          <td class="cell-integration">
+            ${domain ? `<span class="domain-chip">${domain}</span>` : `<span class="domain-chip muted">—</span>`}
+          </td>
+          ${this._renderEntityCell(d)}
+          <td class="cell-area">
+            <select class="area-select" data-device="${d.id}" data-current-area="${currentArea}">
+              <option value="${AreaManagerPanel.UNASSIGN_SENTINEL}" ${selectedValue === AreaManagerPanel.UNASSIGN_SENTINEL ? "selected" : ""}>${this._t("unassignOption")}</option>
+              ${areaOptions}
+            </select>
+          </td>
+          <td class="cell-actions">
+            <div class="actions-wrap">
+            <button class="btn-assign" data-device="${d.id}" ${!isDirty ? "disabled" : ""}>${this._t("assign")}</button>
+            </div>
+          </td>
         </tr>`;
     }).join("");
   }
@@ -434,21 +630,7 @@ class AreaManagerPanel extends HTMLElement {
       const domain = d.identifiers?.[0]?.[0] ?? "";
       const area = this._areas.find((a) => a.area_id === d.area_id);
       const areaLabel = area ? area.name : this._t("noArea");
-
-      const devEntities = this._entities.filter((e) => e.device_id === d.id);
-      const entitiesText = devEntities.map((e) => e.name || e.original_name || e.entity_id).join(" ");
-      const entityCell = `<td class="cell-entities">
-        <span class="entity-count">${this._t("entityCount", devEntities.length)}</span>
-        <div class="entity-details">${
-          devEntities.map((e) => {
-            const name = e.name || e.original_name;
-            return `<div class="entity-row">
-              ${name ? `<span class="entity-row-name">${name}</span>` : ""}
-              <span class="entity-row-id">${e.entity_id}</span>
-            </div>`;
-          }).join("")
-        }</div>
-      </td>`;
+      const entitiesText = this._entitiesText(d);
 
       return `
         <tr class="device-row" data-device-id="${d.id}" data-entities="${entitiesText}">
@@ -459,7 +641,7 @@ class AreaManagerPanel extends HTMLElement {
           <td class="cell-integration">
             ${domain ? `<span class="domain-chip">${domain}</span>` : `<span class="domain-chip muted">—</span>`}
           </td>
-          ${entityCell}
+          ${this._renderEntityCell(d)}
           <td class="cell-area">
             <span class="area-label ${!d.area_id ? "muted" : ""}">${areaLabel}</span>
           </td>
@@ -470,10 +652,28 @@ class AreaManagerPanel extends HTMLElement {
     }).join("");
   }
 
+  _renderBulkBar() {
+    const areaOptions = this._areas
+      .map((a) => `<option value="${a.area_id}">${a.name}</option>`)
+      .join("");
+    return `
+      <div class="bulk-bar" id="bulk-bar" style="${this._selected.size === 0 ? "display:none" : ""}">
+        <span class="bulk-count" id="bulk-count">${this._t("bulkSelectedCount", this._selected.size)}</span>
+        <select class="area-select" id="bulk-area-select">
+          <option value="">${this._t("chooseArea")}</option>
+          <option value="${AreaManagerPanel.UNASSIGN_SENTINEL}">${this._t("unassignOption")}</option>
+          ${areaOptions}
+        </select>
+        <button class="btn-assign" id="bulk-assign" disabled>${this._t("assign")}</button>
+        <button class="btn-bulk-clear" id="bulk-clear">${this._t("bulkClear")}</button>
+      </div>`;
+  }
+
   _render() {
     const unassigned = this._devices.filter((d) => !d.area_id && !this._ignoredIds.has(d.id));
     const ignored = this._devices.filter((d) => this._ignoredIds.has(d.id));
-    const pendingCount = Object.values(this._pending).filter(Boolean).length;
+    const assigned = this._devices.filter((d) => !!d.area_id);
+    const pendingCount = this._pendingEntries().length;
     const hasFilter = this._filterText || this._filterManufacturer || this._filterDomain;
 
     const manufacturers = [
@@ -482,6 +682,14 @@ class AreaManagerPanel extends HTMLElement {
 
     const domains = [
       ...new Set(unassigned.map((d) => d.identifiers?.[0]?.[0]).filter(Boolean)),
+    ].sort((a, b) => a.localeCompare(b));
+
+    const assignedManufacturers = [
+      ...new Set(assigned.map((d) => d.manufacturer).filter(Boolean)),
+    ].sort((a, b) => a.localeCompare(b));
+
+    const assignedDomains = [
+      ...new Set(assigned.map((d) => d.identifiers?.[0]?.[0]).filter(Boolean)),
     ].sort((a, b) => a.localeCompare(b));
 
     const CSS = `
@@ -609,6 +817,23 @@ class AreaManagerPanel extends HTMLElement {
         .cell-actions { padding: 10px 12px; width: 220px; }
         .actions-wrap { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px; }
         .cell-confirm { width: 420px; }
+        .cell-checkbox { padding: 10px 8px; text-align: center; }
+        .bulk-bar {
+          position: sticky;
+          bottom: 12px;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          background: var(--card-background-color, #fff);
+          border: 1px solid var(--divider-color, #e0e0e0);
+          border-radius: 8px;
+          padding: 10px 16px;
+          margin: 12px 0 0;
+          box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+          z-index: 2;
+        }
+        .bulk-bar .area-select { width: auto; min-width: 180px; }
+        .bulk-count { font-size: 0.9em; font-weight: 500; margin-right: 4px; }
         .entity-count { font-size: 0.85em; color: var(--secondary-text-color, #888); }
         .entity-details { display: none; }
         table.entities-expanded .entity-details { display: block; }
@@ -645,7 +870,7 @@ class AreaManagerPanel extends HTMLElement {
         .btn-assign { background: var(--primary-color, #03a9f4); color: var(--text-primary-color, #fff); margin-right: 4px; }
         .btn-ignore { background: var(--secondary-background-color, #e8e8e8); color: var(--primary-text-color); border: 1px solid var(--divider-color, #ccc); margin-right: 4px; }
         .btn-delete { background: transparent; border: 1px solid var(--error-color, #f44336); color: var(--error-color, #f44336); }
-        .btn-unignore { background: var(--secondary-background-color, #e8e8e8); color: var(--primary-text-color); border: 1px solid var(--divider-color, #ccc); }
+        .btn-unignore, .btn-bulk-clear { background: var(--secondary-background-color, #e8e8e8); color: var(--primary-text-color); border: 1px solid var(--divider-color, #ccc); }
         .confirm-text { font-size: 0.9em; margin-right: 8px; color: var(--error-color, #f44336); font-weight: 500; }
         .btn-confirm-yes { background: var(--error-color, #f44336); color: #fff; margin-right: 4px; }
         .btn-confirm-no { background: transparent; border: 1px solid var(--divider-color, #ccc); color: var(--primary-text-color); }
@@ -772,13 +997,15 @@ class AreaManagerPanel extends HTMLElement {
         <div class="empty-filter" id="empty-filter">${this._t("noFilterMatch")}</div>
         <div class="table-scroll"><table>
           <colgroup>
-            <col style="width:32%">
-            <col style="width:10%">
-            <col style="width:20%">
-            <col style="width:18%">
-            <col style="width:20%">
+            <col style="width:5%">
+            <col style="width:31%">
+            <col style="width:9%">
+            <col style="width:19%">
+            <col style="width:17%">
+            <col style="width:19%">
           </colgroup>
           <thead><tr>
+            <th class="cell-checkbox"><input type="checkbox" id="select-all" title="${this._t("selectAll")}"></th>
             <th>${this._t("colDevice")}</th>
             <th>${this._t("colIntegration")}</th>
             <th>${this._t("colEntities")}</th>
@@ -786,7 +1013,8 @@ class AreaManagerPanel extends HTMLElement {
             <th>${this._t("colActions")}</th>
           </tr></thead>
           <tbody>${this._renderUnassignedRows(unassigned)}</tbody>
-        </table></div>`;
+        </table></div>
+        ${this._renderBulkBar()}`;
 
     const ignoredContent = ignored.length === 0
       ? `<div class="empty">${this._t("ignoredEmpty")}</div>`
@@ -808,6 +1036,53 @@ class AreaManagerPanel extends HTMLElement {
           </tr></thead>
           <tbody>${this._renderIgnoredRows(ignored)}</tbody>
         </table></div>`;
+
+    const assignedContent = assigned.length === 0
+      ? `<div class="empty">${this._t("assignedEmpty")}</div>`
+      : `
+        <div class="filter-bar">
+          <input type="search" id="filter-text" class="filter-input"
+            placeholder="${this._t("searchPlaceholder")}" value="${this._filterText}">
+          <select id="filter-manufacturer" class="filter-select">
+            <option value="">${this._t("allManufacturers")}</option>
+            ${assignedManufacturers.map((m) => `<option value="${m}" ${this._filterManufacturer === m ? "selected" : ""}>${m}</option>`).join("")}
+          </select>
+          <select id="filter-domain" class="filter-select">
+            <option value="">${this._t("allIntegrations")}</option>
+            ${assignedDomains.map((d) => `<option value="${d}" ${this._filterDomain === d ? "selected" : ""}>${d}</option>`).join("")}
+          </select>
+          <button class="btn-clear-filter" id="clear-filter" style="${hasFilter ? "" : "display:none"}">${this._t("clearFilter")}</button>
+        </div>
+        <div class="toolbar">
+          <button class="btn-save-all" id="save-all" ${this._saving || pendingCount === 0 ? "disabled" : ""}>
+            ${this._saving ? this._t("saving") : this._t("saveAll", pendingCount)}
+          </button>
+          <button class="btn-reload" id="reload">${this._t("reload")}</button>
+          <button class="btn-toggle-entities" id="toggle-entities">
+            ${this._entitiesExpanded ? this._t("collapseEntities") : this._t("expandEntities")}
+          </button>
+        </div>
+        <div class="empty-filter" id="empty-filter">${this._t("noFilterMatch")}</div>
+        <div class="table-scroll"><table>
+          <colgroup>
+            <col style="width:5%">
+            <col style="width:31%">
+            <col style="width:9%">
+            <col style="width:19%">
+            <col style="width:17%">
+            <col style="width:19%">
+          </colgroup>
+          <thead><tr>
+            <th class="cell-checkbox"><input type="checkbox" id="select-all" title="${this._t("selectAll")}"></th>
+            <th>${this._t("colDevice")}</th>
+            <th>${this._t("colIntegration")}</th>
+            <th>${this._t("colEntities")}</th>
+            <th>${this._t("colArea")}</th>
+            <th>${this._t("colActions")}</th>
+          </tr></thead>
+          <tbody>${this._renderAssignedRows(assigned)}</tbody>
+        </table></div>
+        ${this._renderBulkBar()}`;
 
     this.shadowRoot.innerHTML = `
       ${CSS}
@@ -831,9 +1106,11 @@ class AreaManagerPanel extends HTMLElement {
             <button class="tab ${this._view === "ignored" ? "active" : ""}" data-view="ignored">
               ${this._t("tabIgnored", ignored.length)}
             </button>
+            <button class="tab ${this._view === "assigned" ? "active" : ""}" data-view="assigned">
+              ${this._t("tabAssigned", assigned.length)}
+            </button>
           </div>
-          ${this._view === "unassigned" ? unassignedContent : ignoredContent}
-          ${this._view === "ignored" ? "" : ""}
+          ${this._view === "unassigned" ? unassignedContent : this._view === "assigned" ? assignedContent : ignoredContent}
         `}
     `;
 
@@ -842,32 +1119,56 @@ class AreaManagerPanel extends HTMLElement {
       btn.addEventListener("click", (e) => {
         this._view = e.target.dataset.view;
         this._confirmDelete = null;
+        this._selected.clear();
+        this._pending = {};
+        this._filterText = "";
+        this._filterManufacturer = "";
+        this._filterDomain = "";
         this._render();
       });
     });
 
-    // Unassigned view listeners
-    if (this._view === "unassigned") {
-      this.shadowRoot.querySelectorAll(".area-select").forEach((sel) => {
-        if (this._pending[sel.dataset.device]) sel.value = this._pending[sel.dataset.device];
+    // Shared between "unassigned" and "assigned": per-row area dropdown + assign button
+    if (this._view === "unassigned" || this._view === "assigned") {
+      this.shadowRoot.querySelectorAll(".area-select[data-device]").forEach((sel) => {
+        if (this._pending[sel.dataset.device] !== undefined) sel.value = this._pending[sel.dataset.device];
         sel.addEventListener("change", (e) => {
           const id = e.target.dataset.device;
           this._pending[id] = e.target.value;
           const btn = this.shadowRoot.querySelector(`.btn-assign[data-device="${id}"]`);
-          if (btn) btn.disabled = !e.target.value;
+          if (btn) btn.disabled = e.target.value === e.target.dataset.currentArea;
           const saveAll = this.shadowRoot.getElementById("save-all");
           if (saveAll) {
-            const count = Object.values(this._pending).filter(Boolean).length;
+            const count = this._pendingEntries().length;
             saveAll.disabled = count === 0;
             saveAll.textContent = this._t("saveAll", count);
           }
         });
       });
 
-      this.shadowRoot.querySelectorAll(".btn-assign").forEach((btn) =>
+      this.shadowRoot.querySelectorAll(".btn-assign[data-device]").forEach((btn) =>
         btn.addEventListener("click", (e) => this._saveDevice(e.target.dataset.device))
       );
 
+      const saveAll = this.shadowRoot.getElementById("save-all");
+      if (saveAll) saveAll.addEventListener("click", () => this._saveAll());
+
+      const reload = this.shadowRoot.getElementById("reload");
+      if (reload) {
+        reload.addEventListener("click", () => {
+          this._loaded = false;
+          this._pending = {};
+          this._confirmDelete = null;
+          this._selected.clear();
+          this._load();
+        });
+      }
+
+      this._bindBulkListeners();
+    }
+
+    // Unassigned-only view listeners (ignore/delete)
+    if (this._view === "unassigned") {
       this.shadowRoot.querySelectorAll(".btn-ignore").forEach((btn) =>
         btn.addEventListener("click", (e) => this._ignoreDevice(e.target.dataset.device))
       );
@@ -889,20 +1190,10 @@ class AreaManagerPanel extends HTMLElement {
           this._render();
         })
       );
+    }
 
-      const saveAll = this.shadowRoot.getElementById("save-all");
-      if (saveAll) saveAll.addEventListener("click", () => this._saveAll());
-
-      const reload = this.shadowRoot.getElementById("reload");
-      if (reload) {
-        reload.addEventListener("click", () => {
-          this._loaded = false;
-          this._pending = {};
-          this._confirmDelete = null;
-          this._load();
-        });
-      }
-
+    // Shared again: entities toggle + filter bar (present on both "unassigned" and "assigned")
+    if (this._view === "unassigned" || this._view === "assigned") {
       const toggleEntities = this.shadowRoot.getElementById("toggle-entities");
       if (toggleEntities) {
         toggleEntities.addEventListener("click", () => {
@@ -930,11 +1221,11 @@ class AreaManagerPanel extends HTMLElement {
       );
     }
 
-    // Row click → device detail dialog (both views)
+    // Row click → device detail dialog (all views)
     const tbody = this.shadowRoot.querySelector("table tbody");
     if (tbody) {
       tbody.addEventListener("click", (e) => {
-        if (e.target.closest("button, select")) return;
+        if (e.target.closest("button, select, input")) return;
         const row = e.target.closest(".device-row[data-device-id]");
         if (!row) return;
         const device = this._devices.find((d) => d.id === row.dataset.deviceId);
