@@ -3,6 +3,18 @@
 All notable changes to Area Manager are documented here.
 Alle wesentlichen Änderungen an Area Manager werden hier dokumentiert.
 
+## [2.1.0] - 2026-07-06
+
+**English**
+- Added the same filter bar (search, manufacturer, integration) to the "Ignored" tab that already existed on "Without area" and "Assigned"
+- The device detail popup can now rename a device (pencil icon next to the title), assign/reassign its area (including unassigning back to "Without area"), ignore/show it again, and delete it — all without closing the popup first
+- Fixed reloading the integration (or removing and re-adding it without restarting Home Assistant) failing with `Overwriting panel area-manager`, since the sidebar panel was never unregistered on unload (#3)
+
+**Deutsch**
+- Die gleiche Filterleiste (Text, Hersteller, Integration) wie bei "Ohne Bereich"/"Zugewiesen" gibt es jetzt auch im "Ignoriert"-Tab
+- Im Geräte-Detail-Popup kann man ein Gerät jetzt umbenennen (Stift-Icon neben dem Titel), den Bereich zuweisen/ändern (inkl. Zurücksetzen auf "Ohne Bereich"), es ignorieren/wieder anzeigen und löschen — alles ohne das Popup vorher schließen zu müssen
+- Fehler behoben: Neuladen der Integration (bzw. Entfernen und ohne HA-Neustart erneut Hinzufügen) schlug mit `Overwriting panel area-manager` fehl, da das Sidebar-Panel beim Entladen nie wieder abgemeldet wurde (#3)
+
 ## [2.0.0] - 2026-07-05
 
 **English**

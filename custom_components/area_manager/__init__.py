@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 
 import voluptuous as vol
-from homeassistant.components import websocket_api
+from homeassistant.components import frontend, websocket_api
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.components.panel_custom import async_register_panel
 from homeassistant.config_entries import ConfigEntry
@@ -12,6 +12,7 @@ from homeassistant.helpers.storage import Store
 
 _LOGGER = logging.getLogger(__name__)
 DOMAIN = "area_manager"
+_PANEL_URL_PATH = "area-manager"
 _PANEL_JS_URL = "/area-manager-panel.js"
 _STORAGE_KEY = f"{DOMAIN}_ignored"
 _STORAGE_VERSION = 1
@@ -69,10 +70,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         [StaticPathConfig(_PANEL_JS_URL, str(panel_js), cache_headers=False)]
     )
 
+    # A reload (or remove + re-add without restarting HA) re-runs this without HA
+    # having forgotten the previously registered panel, so registering again would
+    # raise "Overwriting panel area-manager". Drop it first to keep setup idempotent.
+    if _PANEL_URL_PATH in hass.data.get(frontend.DATA_PANELS, {}):
+        frontend.async_remove_panel(hass, _PANEL_URL_PATH)
+
     await async_register_panel(
         hass,
         webcomponent_name="area-manager-panel",
-        frontend_url_path="area-manager",
+        frontend_url_path=_PANEL_URL_PATH,
         sidebar_title="Area Manager",
         sidebar_icon="mdi:map-marker-multiple",
         js_url=_PANEL_JS_URL,
@@ -87,4 +94,5 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    frontend.async_remove_panel(hass, _PANEL_URL_PATH)
     return True

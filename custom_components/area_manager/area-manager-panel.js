@@ -22,6 +22,7 @@ const TRANSLATIONS = {
     confirmNo: "Abbrechen",
     chooseArea: "— Bereich wählen —",
     unassignOption: "— Kein Bereich —",
+    renameTitle: "Umbenennen",
     selectAll: "Alle auswählen",
     bulkSelectedCount: (n) => `${n} ausgewählt`,
     bulkClear: "Auswahl aufheben",
@@ -76,6 +77,7 @@ const TRANSLATIONS = {
     confirmNo: "Cancel",
     chooseArea: "— Choose area —",
     unassignOption: "— No area —",
+    renameTitle: "Rename",
     selectAll: "Select all",
     bulkSelectedCount: (n) => `${n} selected`,
     bulkClear: "Clear selection",
@@ -305,6 +307,22 @@ class AreaManagerPanel extends HTMLElement {
     this._render();
   }
 
+  async _renameDevice(deviceId, newName) {
+    try {
+      await this._hass.callWS({
+        type: "config/device_registry/update",
+        device_id: deviceId,
+        name_by_user: newName || null,
+      });
+      const dev = this._devices.find((d) => d.id === deviceId);
+      if (dev) dev.name_by_user = newName || null;
+      return true;
+    } catch (e) {
+      this._error = this._t("errorSave", e.message);
+      return false;
+    }
+  }
+
   async _showDeviceDetail(device) {
     // Remove any existing dialog
     const existing = this.shadowRoot.getElementById("area-mgr-dlg");
@@ -314,21 +332,41 @@ class AreaManagerPanel extends HTMLElement {
     const domain = device.identifiers?.[0]?.[0] ?? "—";
     const areaName = this._areas.find((a) => a.area_id === device.area_id)?.name
       || this._t("noArea");
+    const isIgnored = this._ignoredIds.has(device.id);
+
+    const areaOptionsHtml = this._areas
+      .map((a) => `<option value="${a.area_id}" ${a.area_id === device.area_id ? "selected" : ""}>${a.name}</option>`)
+      .join("");
+    const areaSelectOptions = device.area_id
+      ? `<option value="${AreaManagerPanel.UNASSIGN_SENTINEL}">${this._t("unassignOption")}</option>${areaOptionsHtml}`
+      : `<option value="">${this._t("chooseArea")}</option>${areaOptionsHtml}`;
 
     const dlg = document.createElement("dialog");
     dlg.id = "area-mgr-dlg";
     dlg.innerHTML = `
       <div class="dlg-header">
-        <h2 class="dlg-title">${label}</h2>
+        <div class="dlg-title-row">
+          <h2 class="dlg-title" id="dlg-title-text">${label}</h2>
+          <button class="btn-rename" id="dlg-rename" title="${this._t("renameTitle")}">✏️</button>
+        </div>
         <button class="dlg-close" id="dlg-close" title="${this._t("dlgClose")}">✕</button>
       </div>
       <div class="dlg-body">
+        <p class="dlg-rename-error" id="dlg-rename-error" style="display:none"></p>
         <dl class="dlg-grid">
           ${device.manufacturer ? `<dt>${this._t("dlgManufacturer")}</dt><dd>${device.manufacturer}</dd>` : ""}
           ${device.model ? `<dt>${this._t("dlgModel")}</dt><dd>${device.model}</dd>` : ""}
           <dt>${this._t("dlgIntegration")}</dt><dd><span class="dlg-chip">${domain}</span></dd>
           <dt>${this._t("dlgArea")}</dt><dd>${areaName}</dd>
         </dl>
+        <div class="dlg-actions">
+          <select class="area-select" id="dlg-area-select" data-current-area="${device.area_id || ""}">
+            ${areaSelectOptions}
+          </select>
+          <button class="btn-assign" id="dlg-assign" disabled>${this._t("assign")}</button>
+          ${!device.area_id ? `<button class="${isIgnored ? "btn-unignore" : "btn-ignore"}" id="dlg-ignore-toggle">${isIgnored ? this._t("unignore") : this._t("ignore")}</button>` : ""}
+          <span id="dlg-delete-slot"></span>
+        </div>
         <p class="dlg-section">${this._t("dlgEntities")}</p>
         <p class="dlg-loading" id="dlg-loading">${this._t("dlgLoading")}</p>
         <ul class="dlg-entity-list" id="dlg-entity-list" style="display:none"></ul>
@@ -339,9 +377,15 @@ class AreaManagerPanel extends HTMLElement {
     this.shadowRoot.appendChild(dlg);
     dlg.showModal();
 
+    // Renaming keeps the modal open (user may still want to assign/ignore/delete
+    // afterwards), so it deliberately never calls _render() while open — that would
+    // wipe shadowRoot.innerHTML (and the open dialog with it) mid-edit. Instead the
+    // full re-render is deferred to the "close" handler below, only if a rename happened.
+    let renamed = false;
+
     // Native close (button, backdrop click, Escape) always fires "close" — remove on that
     // single event so Escape (which only triggers the browser default close()) is handled too.
-    dlg.addEventListener("close", () => dlg.remove());
+    dlg.addEventListener("close", () => { dlg.remove(); if (renamed) this._render(); });
     dlg.querySelector("#dlg-close").addEventListener("click", () => dlg.close());
     dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
     dlg.querySelector("#dlg-nav").addEventListener("click", () => {
@@ -349,6 +393,98 @@ class AreaManagerPanel extends HTMLElement {
       history.pushState(null, "", `/config/devices/device/${device.id}`);
       window.dispatchEvent(new CustomEvent("location-changed", { bubbles: true }));
     });
+
+    // Rename (header pencil icon)
+    const renameBtn = dlg.querySelector("#dlg-rename");
+    renameBtn.addEventListener("click", () => {
+      const titleText = dlg.querySelector("#dlg-title-text");
+      const originalLabel = titleText.textContent;
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "rename-input";
+      input.value = device.name_by_user || device.name || device.id;
+      titleText.replaceWith(input);
+      renameBtn.style.display = "none";
+      input.focus();
+      input.select();
+
+      let committed = false;
+      const restoreTitle = (text) => {
+        const h2 = document.createElement("h2");
+        h2.className = "dlg-title";
+        h2.id = "dlg-title-text";
+        h2.textContent = text;
+        input.replaceWith(h2);
+        renameBtn.style.display = "";
+      };
+      const cancel = () => {
+        if (committed) return;
+        committed = true;
+        restoreTitle(originalLabel);
+      };
+      const commit = async () => {
+        if (committed) return;
+        committed = true;
+        const newName = input.value.trim();
+        const ok = await this._renameDevice(device.id, newName);
+        if (ok) {
+          renamed = true;
+          restoreTitle(newName || device.name || device.id);
+        } else {
+          const errEl = dlg.querySelector("#dlg-rename-error");
+          if (errEl) { errEl.textContent = this._error; errEl.style.display = ""; }
+          this._error = null;
+          committed = false;
+          input.focus();
+        }
+      };
+      input.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") commit();
+        if (ev.key === "Escape") cancel();
+      });
+      input.addEventListener("blur", () => commit());
+    });
+
+    // Assign area
+    const areaSelect = dlg.querySelector("#dlg-area-select");
+    const assignBtn = dlg.querySelector("#dlg-assign");
+    areaSelect.addEventListener("change", (e) => {
+      assignBtn.disabled = e.target.value === areaSelect.dataset.currentArea;
+    });
+    assignBtn.addEventListener("click", () => {
+      this._pending[device.id] = areaSelect.value;
+      dlg.close();
+      this._saveDevice(device.id);
+    });
+
+    // Ignore / unignore toggle (only offered for devices without an area)
+    const ignoreToggle = dlg.querySelector("#dlg-ignore-toggle");
+    if (ignoreToggle) {
+      ignoreToggle.addEventListener("click", () => {
+        dlg.close();
+        if (isIgnored) this._unignoreDevice(device.id);
+        else this._ignoreDevice(device.id);
+      });
+    }
+
+    // Delete (always offered, with an inline two-step confirm)
+    const deleteSlot = dlg.querySelector("#dlg-delete-slot");
+    const renderDeleteButton = () => {
+      deleteSlot.innerHTML = `<button class="btn-delete" id="dlg-delete">${this._t("delete")}</button>`;
+      deleteSlot.querySelector("#dlg-delete").addEventListener("click", () => {
+        deleteSlot.innerHTML = `
+          <span class="confirm-text">${this._t("confirmDelete")}</span>
+          <button class="btn-confirm-yes" id="dlg-confirm-yes">${this._t("confirmYes")}</button>
+          <button class="btn-confirm-no" id="dlg-confirm-no">${this._t("confirmNo")}</button>
+        `;
+        deleteSlot.querySelector("#dlg-confirm-yes").addEventListener("click", () => {
+          dlg.close();
+          this._deleteDevice(device.id);
+        });
+        deleteSlot.querySelector("#dlg-confirm-no").addEventListener("click", renderDeleteButton);
+      });
+    };
+    renderDeleteButton();
 
     // Use already-loaded entity data
     const entities = this._entities.filter((e) => e.device_id === device.id);
@@ -692,6 +828,14 @@ class AreaManagerPanel extends HTMLElement {
       ...new Set(assigned.map((d) => d.identifiers?.[0]?.[0]).filter(Boolean)),
     ].sort((a, b) => a.localeCompare(b));
 
+    const ignoredManufacturers = [
+      ...new Set(ignored.map((d) => d.manufacturer).filter(Boolean)),
+    ].sort((a, b) => a.localeCompare(b));
+
+    const ignoredDomains = [
+      ...new Set(ignored.map((d) => d.identifiers?.[0]?.[0]).filter(Boolean)),
+    ].sort((a, b) => a.localeCompare(b));
+
     const CSS = `
       <style>
         :host {
@@ -905,6 +1049,29 @@ class AreaManagerPanel extends HTMLElement {
           flex-shrink: 0;
         }
         .dlg-title { margin: 0; font-size: 1.15em; font-weight: 500; }
+        .dlg-title-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+        .btn-rename {
+          background: none;
+          border: none;
+          padding: 2px 4px;
+          font-size: 0.85em;
+          cursor: pointer;
+          line-height: 1;
+          color: var(--secondary-text-color, #888);
+          flex-shrink: 0;
+        }
+        .rename-input {
+          font-size: 1.1em;
+          font-weight: 500;
+          padding: 2px 6px;
+          border: 1px solid var(--primary-color, #03a9f4);
+          border-radius: 4px;
+          width: 100%;
+          box-sizing: border-box;
+        }
+        .dlg-rename-error { color: var(--error-color, #f44336); font-size: 0.85em; margin: 0 0 12px; }
+        .dlg-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 20px; }
+        .dlg-actions .area-select { width: auto; min-width: 160px; }
         .dlg-close {
           background: none;
           border: none;
@@ -1019,6 +1186,20 @@ class AreaManagerPanel extends HTMLElement {
     const ignoredContent = ignored.length === 0
       ? `<div class="empty">${this._t("ignoredEmpty")}</div>`
       : `
+        <div class="filter-bar">
+          <input type="search" id="filter-text" class="filter-input"
+            placeholder="${this._t("searchPlaceholder")}" value="${this._filterText}">
+          <select id="filter-manufacturer" class="filter-select">
+            <option value="">${this._t("allManufacturers")}</option>
+            ${ignoredManufacturers.map((m) => `<option value="${m}" ${this._filterManufacturer === m ? "selected" : ""}>${m}</option>`).join("")}
+          </select>
+          <select id="filter-domain" class="filter-select">
+            <option value="">${this._t("allIntegrations")}</option>
+            ${ignoredDomains.map((d) => `<option value="${d}" ${this._filterDomain === d ? "selected" : ""}>${d}</option>`).join("")}
+          </select>
+          <button class="btn-clear-filter" id="clear-filter" style="${hasFilter ? "" : "display:none"}">${this._t("clearFilter")}</button>
+        </div>
+        <div class="empty-filter" id="empty-filter">${this._t("noFilterMatch")}</div>
         <div class="table-scroll"><table>
           <colgroup>
             <col style="width:32%">
@@ -1192,8 +1373,9 @@ class AreaManagerPanel extends HTMLElement {
       );
     }
 
-    // Shared again: entities toggle + filter bar (present on both "unassigned" and "assigned")
-    if (this._view === "unassigned" || this._view === "assigned") {
+    // Shared again: entities toggle + filter bar (present on "unassigned", "assigned", and "ignored";
+    // the toggle-entities lookup is a no-op where that button doesn't exist, e.g. "ignored")
+    if (this._view === "unassigned" || this._view === "assigned" || this._view === "ignored") {
       const toggleEntities = this.shadowRoot.getElementById("toggle-entities");
       if (toggleEntities) {
         toggleEntities.addEventListener("click", () => {
