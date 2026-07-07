@@ -48,8 +48,16 @@ const TRANSLATIONS = {
     dlgModel: "Modell",
     dlgIntegration: "Integration",
     dlgArea: "Bereich",
+    dlgCreatedAt: "Hinzugefügt am",
     dlgEntities: "Entitäten",
     dlgNoEntities: "Keine Entitäten vorhanden.",
+    dlgShowDetails: "Details anzeigen",
+    dlgHideDetails: "Details ausblenden",
+    dlgState: "Status",
+    dlgLastSeen: "Zuletzt gesehen",
+    dlgAttributes: "Attribute",
+    dlgNoState: "Kein Status verfügbar",
+    dlgLastSeenNote: (restartTime) => `⚠️ nahe am letzten HA-Neustart (${restartTime}) — der tatsächliche Zeitpunkt könnte länger her sein`,
     dlgGoToDevice: "Zur Geräteseite",
     dlgClose: "Schließen",
     dlgLoading: "Lade Details…",
@@ -103,8 +111,16 @@ const TRANSLATIONS = {
     dlgModel: "Model",
     dlgIntegration: "Integration",
     dlgArea: "Area",
+    dlgCreatedAt: "Added on",
     dlgEntities: "Entities",
     dlgNoEntities: "No entities.",
+    dlgShowDetails: "Show details",
+    dlgHideDetails: "Hide details",
+    dlgState: "State",
+    dlgLastSeen: "Last seen",
+    dlgAttributes: "Attributes",
+    dlgNoState: "No state available",
+    dlgLastSeenNote: (restartTime) => `⚠️ close to the last HA restart (${restartTime}) — the actual time could be older`,
     dlgGoToDevice: "Go to device page",
     dlgClose: "Close",
     dlgLoading: "Loading details…",
@@ -130,6 +146,7 @@ class AreaManagerPanel extends HTMLElement {
     this._filterManufacturer = "";
     this._filterDomain = "";
     this._entitiesExpanded = false;
+    this._setupTime = null;
   }
 
   _t(key, ...args) {
@@ -151,16 +168,18 @@ class AreaManagerPanel extends HTMLElement {
     this._error = null;
     this._render();
     try {
-      const [devices, areas, entities, ignoredIds] = await Promise.all([
+      const [devices, areas, entities, ignoredIds, setupTime] = await Promise.all([
         this._hass.callWS({ type: "config/device_registry/list" }),
         this._hass.callWS({ type: "config/area_registry/list" }),
         this._hass.callWS({ type: "config/entity_registry/list" }),
         this._hass.callWS({ type: "area_manager/get_ignored" }),
+        this._hass.callWS({ type: "area_manager/get_setup_time" }),
       ]);
       this._devices = devices;
       this._areas = areas.slice().sort((a, b) => a.name.localeCompare(b.name));
       this._entities = entities;
       this._ignoredIds = new Set(ignoredIds);
+      this._setupTime = setupTime;
     } catch (e) {
       this._error = this._t("errorLoad", e.message);
     }
@@ -215,6 +234,26 @@ class AreaManagerPanel extends HTMLElement {
 
   _resolveAreaId(rawValue) {
     return rawValue === AreaManagerPanel.UNASSIGN_SENTINEL ? null : rawValue;
+  }
+
+  // Registry timestamps may arrive as Unix seconds (number) or an ISO string
+  // depending on HA version, so handle both defensively rather than assume one.
+  _formatTimestamp(value) {
+    if (value === undefined || value === null || value === "") return "—";
+    const date = typeof value === "number" ? new Date(value * 1000) : new Date(value);
+    if (Number.isNaN(date.getTime())) return "—";
+    return date.toLocaleString(this._hass?.language || "de");
+  }
+
+  // "Last seen" timestamps get rewritten on every HA restart (the integration
+  // writes a fresh state, e.g. "unavailable", on startup), so a value that
+  // merely coincides with our own setup time likely just reflects "since at
+  // least the last restart" rather than genuine recent activity. Flag that.
+  _lastSeenNote(isoValue) {
+    if (!isoValue || !this._setupTime) return null;
+    const diffMs = Math.abs(new Date(isoValue) - new Date(this._setupTime));
+    if (Number.isNaN(diffMs) || diffMs > 5 * 60 * 1000) return null;
+    return this._t("dlgLastSeenNote", this._formatTimestamp(this._setupTime));
   }
 
   async _saveDevice(deviceId) {
@@ -334,6 +373,19 @@ class AreaManagerPanel extends HTMLElement {
       || this._t("noArea");
     const isIgnored = this._ignoredIds.has(device.id);
 
+    // Devices have no "last seen" of their own — derive it as the most recent
+    // activity across all of the device's entities, so a stale device (all
+    // entities long inactive) is obvious at a glance without expanding details.
+    const entities = this._entities.filter((e) => e.device_id === device.id);
+    const lastSeenValues = entities
+      .map((e) => this._hass.states?.[e.entity_id])
+      .filter(Boolean)
+      .map((s) => s.last_reported || s.last_updated)
+      .filter(Boolean);
+    const deviceLastSeen = lastSeenValues.length
+      ? lastSeenValues.reduce((latest, v) => (new Date(v) > new Date(latest) ? v : latest))
+      : null;
+
     const areaOptionsHtml = this._areas
       .map((a) => `<option value="${a.area_id}" ${a.area_id === device.area_id ? "selected" : ""}>${a.name}</option>`)
       .join("");
@@ -358,6 +410,8 @@ class AreaManagerPanel extends HTMLElement {
           ${device.model ? `<dt>${this._t("dlgModel")}</dt><dd>${device.model}</dd>` : ""}
           <dt>${this._t("dlgIntegration")}</dt><dd><span class="dlg-chip">${domain}</span></dd>
           <dt>${this._t("dlgArea")}</dt><dd>${areaName}</dd>
+          ${device.created_at ? `<dt>${this._t("dlgCreatedAt")}</dt><dd>${this._formatTimestamp(device.created_at)}</dd>` : ""}
+          ${deviceLastSeen ? `<dt>${this._t("dlgLastSeen")}</dt><dd>${this._formatTimestamp(deviceLastSeen)}${this._lastSeenNote(deviceLastSeen) ? `<div class="dlg-lastseen-note">${this._lastSeenNote(deviceLastSeen)}</div>` : ""}</dd>` : ""}
         </dl>
         <div class="dlg-actions">
           <select class="area-select" id="dlg-area-select" data-current-area="${device.area_id || ""}">
@@ -367,7 +421,10 @@ class AreaManagerPanel extends HTMLElement {
           ${!device.area_id ? `<button class="${isIgnored ? "btn-unignore" : "btn-ignore"}" id="dlg-ignore-toggle">${isIgnored ? this._t("unignore") : this._t("ignore")}</button>` : ""}
           <span id="dlg-delete-slot"></span>
         </div>
-        <p class="dlg-section">${this._t("dlgEntities")}</p>
+        <div class="dlg-section-row">
+          <p class="dlg-section">${this._t("dlgEntities")}</p>
+          <button class="btn-toggle-entities" id="dlg-toggle-details">${this._t("dlgShowDetails")}</button>
+        </div>
         <p class="dlg-loading" id="dlg-loading">${this._t("dlgLoading")}</p>
         <ul class="dlg-entity-list" id="dlg-entity-list" style="display:none"></ul>
         <p class="dlg-empty-entities" id="dlg-empty-entities" style="display:none">${this._t("dlgNoEntities")}</p>
@@ -486,21 +543,44 @@ class AreaManagerPanel extends HTMLElement {
     };
     renderDeleteButton();
 
-    // Use already-loaded entity data
-    const entities = this._entities.filter((e) => e.device_id === device.id);
+    // entities already computed above (needed early for the device-level "last seen")
     dlg.querySelector("#dlg-loading").style.display = "none";
+    const toggleDetails = dlg.querySelector("#dlg-toggle-details");
     if (entities.length === 0) {
       dlg.querySelector("#dlg-empty-entities").style.display = "";
+      if (toggleDetails) toggleDetails.style.display = "none";
     } else {
       const list = dlg.querySelector("#dlg-entity-list");
       list.style.display = "";
       list.innerHTML = entities.map((e) => {
         const name = e.name || e.original_name;
+        const stateObj = this._hass.states?.[e.entity_id];
+        const entityLastSeen = stateObj?.last_reported || stateObj?.last_updated;
+        const entityLastSeenNote = this._lastSeenNote(entityLastSeen);
+        const detailHtml = stateObj
+          ? `<dl class="dlg-grid dlg-entity-grid">
+              <dt>${this._t("dlgState")}</dt><dd>${stateObj.state}</dd>
+              <dt>${this._t("dlgLastSeen")}</dt><dd>${this._formatTimestamp(entityLastSeen)}${entityLastSeenNote ? `<div class="dlg-lastseen-note">${entityLastSeenNote}</div>` : ""}</dd>
+              ${Object.entries(stateObj.attributes || {}).map(([k, v]) =>
+                `<dt>${k}</dt><dd>${typeof v === "object" && v !== null ? JSON.stringify(v) : v}</dd>`
+              ).join("")}
+            </dl>`
+          : `<p class="dlg-entity-no-state">${this._t("dlgNoState")}</p>`;
         return `<li>
           ${name ? `<span class="dlg-entity-name">${name}</span>` : ""}
           <span class="dlg-entity-id">${e.entity_id}</span>
+          <div class="dlg-entity-detail">${detailHtml}</div>
         </li>`;
       }).join("");
+
+      let detailsExpanded = false;
+      if (toggleDetails) {
+        toggleDetails.addEventListener("click", () => {
+          detailsExpanded = !detailsExpanded;
+          list.classList.toggle("details-expanded", detailsExpanded);
+          toggleDetails.textContent = detailsExpanded ? this._t("dlgHideDetails") : this._t("dlgShowDetails");
+        });
+      }
     }
   }
 
@@ -1108,10 +1188,23 @@ class AreaManagerPanel extends HTMLElement {
           text-transform: uppercase;
           letter-spacing: 0.06em;
           color: var(--secondary-text-color, #888);
-          margin: 0 0 8px;
+          margin: 0;
         }
+        .dlg-section-row { display: flex; align-items: center; justify-content: space-between; margin: 0 0 8px; }
         .dlg-loading, .dlg-empty-entities { color: var(--secondary-text-color, #888); font-size: 0.9em; margin: 0 0 16px; }
         .dlg-entity-list { list-style: none; padding: 0; margin: 0 0 20px; }
+        .dlg-entity-detail {
+          display: none;
+          margin-top: 6px;
+          padding-left: 12px;
+          border-left: 2px solid var(--divider-color, #e0e0e0);
+        }
+        .dlg-entity-list.details-expanded .dlg-entity-detail { display: block; }
+        .dlg-entity-grid { gap: 3px 12px; margin: 0; font-size: 0.82em; }
+        .dlg-entity-grid dt { font-size: 0.9em; overflow-wrap: anywhere; }
+        .dlg-entity-grid dd { overflow-wrap: anywhere; }
+        .dlg-entity-no-state { color: var(--secondary-text-color, #888); font-size: 0.82em; margin: 6px 0 0; }
+        .dlg-lastseen-note { font-size: 0.78em; color: var(--secondary-text-color, #888); font-style: italic; margin-top: 2px; }
         .dlg-entity-list li {
           display: flex;
           flex-direction: column;

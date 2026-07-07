@@ -9,6 +9,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.storage import Store
+from homeassistant.loader import async_get_integration
+from homeassistant.util import dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
 DOMAIN = "area_manager"
@@ -57,6 +59,12 @@ async def _ws_remove_device(hass: HomeAssistant, connection, msg) -> None:
     connection.send_result(msg["id"], "ok")
 
 
+@websocket_api.websocket_command({vol.Required("type"): "area_manager/get_setup_time"})
+@websocket_api.async_response
+async def _ws_get_setup_time(hass: HomeAssistant, connection, msg) -> None:
+    connection.send_result(msg["id"], hass.data[DOMAIN].get("setup_time"))
+
+
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     return True
 
@@ -64,6 +72,11 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN]["store"] = Store(hass, _STORAGE_VERSION, _STORAGE_KEY)
+    # Proxy for "last HA restart": this integration is set up fresh on every
+    # restart (a config-entry reload alone does not re-run this), so recording
+    # our own setup time is a portable stand-in for HA's boot time without
+    # depending on Supervisor-only APIs that wouldn't work for non-HAOS users.
+    hass.data[DOMAIN]["setup_time"] = dt_util.utcnow().isoformat()
 
     panel_js = Path(__file__).parent / "area-manager-panel.js"
     await hass.http.async_register_static_paths(
@@ -76,19 +89,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if _PANEL_URL_PATH in hass.data.get(frontend.DATA_PANELS, {}):
         frontend.async_remove_panel(hass, _PANEL_URL_PATH)
 
+    # The Companion App's WebView can aggressively cache the panel JS regardless
+    # of cache_headers=False above, so new versions may not show up after an
+    # update. Appending the integration version as a query string makes each
+    # release a distinct URL, forcing a real fetch instead of relying on the
+    # client to honor cache-control correctly.
+    integration = await async_get_integration(hass, DOMAIN)
+    js_url = f"{_PANEL_JS_URL}?v={integration.version}"
+
     await async_register_panel(
         hass,
         webcomponent_name="area-manager-panel",
         frontend_url_path=_PANEL_URL_PATH,
         sidebar_title="Area Manager",
         sidebar_icon="mdi:map-marker-multiple",
-        js_url=_PANEL_JS_URL,
+        js_url=js_url,
         require_admin=True,
     )
 
     websocket_api.async_register_command(hass, _ws_get_ignored)
     websocket_api.async_register_command(hass, _ws_set_ignored)
     websocket_api.async_register_command(hass, _ws_remove_device)
+    websocket_api.async_register_command(hass, _ws_get_setup_time)
 
     return True
 

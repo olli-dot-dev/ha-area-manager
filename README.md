@@ -21,7 +21,8 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes (English/Deutsch).
 - **Bulk assignment** — select multiple devices via checkbox and assign them all to one area at once; selection is preserved while filtering
 - **Assigned tab** — review devices that already have an area and correct misassignments, including unassigning back to "Without area"
 - **Filter bar** — search by device name, manufacturer, or model; filter by manufacturer or integration domain
-- **Device detail dialog** — click any row to open a detail popup with device info and its full entity list
+- **Device detail dialog** — click any row to open a detail popup with device info and its full entity list; rename the device, assign/reassign its area, ignore/restore it, or delete it, all without leaving the popup
+- **Extended metadata** — see when a device was added and when it (or any of its entities) was last seen; expand per-entity details for state, last-seen timestamp, and all attributes
 - **Ignore list** — mark devices that intentionally have no area (e.g. virtual or cloud-only devices); revisit and restore them at any time
 - **Delete devices** — remove orphaned devices from the registry directly, with an inline confirmation step
 - **Persistent ignore list** — ignored device IDs are stored in HA's `.storage` and survive restarts
@@ -85,15 +86,23 @@ Open the **Assigned** tab to see every device that already has an area. Each row
 
 ### Device detail
 
-Click anywhere on a row (outside buttons and the dropdown) to open the device detail popup. It shows manufacturer, model, integration, current area, and all entities belonging to that device. A **Go to device page** button navigates to HA's built-in device page.
+Click anywhere on a row (outside buttons, checkboxes, and the dropdown) to open the device detail popup. It shows manufacturer, model, integration, current area, when the device was added, and a device-level "last seen" (the most recent activity across all of its entities). A **Go to device page** button navigates to HA's built-in device page.
+
+From the same popup, without closing it, you can:
+- **Rename** the device — click the pencil icon next to the title
+- **Assign or reassign the area** — including unassigning a device back to "Without area"
+- **Ignore it / show it again** — offered for devices without an area
+- **Delete it** — with the same inline two-step confirmation used elsewhere
+
+Click **Show details** to expand, per entity, its current state, last-seen timestamp, and all attributes in a compact table. If a "last seen" value is suspiciously close to the last Home Assistant restart, a note flags it — a restart alone refreshes that timestamp even if the device hasn't actually reported anything since, so the real last-seen time could be much older.
 
 ### Ignoring devices
 
-Click **Ignore** on any row to move a device to the **Ignored** tab. Ignored devices are excluded from the unassigned list. Open the **Ignored** tab at any time to review the list and click **Show again** to restore a device.
+Click **Ignore** on a row (or in the device detail popup) to move a device to the **Ignored** tab. Ignored devices are excluded from the unassigned list. Open the **Ignored** tab at any time — it has the same filter bar as the other tabs — and click **Show again** to restore a device.
 
 ### Deleting devices
 
-Click **Delete** on a row to remove the device from the HA device registry. An inline confirmation appears before anything is deleted. Use this for truly orphaned devices that no longer have an active integration.
+Click **Delete** on a row (or in the device detail popup) to remove the device from the HA device registry. An inline confirmation appears before anything is deleted. Use this for truly orphaned devices that no longer have an active integration.
 
 ## Tabs
 
@@ -116,7 +125,7 @@ Pull requests for additional languages are welcome — add a block to `TRANSLATI
 
 1. Fork the repository
 2. Drop `custom_components/area_manager` into your HA `config/custom_components/`
-3. Reload the integration after changes to `__init__.py`; for JS changes, hard-refresh the browser (the static path is served with `cache_headers=False`)
+3. Restart Home Assistant after changes to any `.py` file — reloading the integration from Settings → Devices & Services is **not** enough, since a reload re-runs the already-imported module rather than re-reading it from disk. For JS-only changes, a hard-refresh of the browser is enough (the static path is served with `cache_headers=False`)
 4. Open a pull request
 
 ## License

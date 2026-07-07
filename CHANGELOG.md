@@ -3,6 +3,20 @@
 All notable changes to Area Manager are documented here.
 Alle wesentlichen Änderungen an Area Manager werden hier dokumentiert.
 
+## [2.2.0] - 2026-07-07
+
+**English**
+- Fixed the Companion App's WebView sometimes keeping a stale, cached copy of the panel after an update, hiding new features until the app was force-quit. The panel JS URL now includes the integration version as a cache-busting query parameter, so every release is fetched fresh
+- The device detail popup now shows "Added on" and a device-level "Last seen" (the most recent activity across all of the device's entities) so a long-dead device is obvious at a glance
+- Added a "Show details" toggle per device that reveals, for every entity, its current state, last-seen timestamp, and all attributes in a compact, aligned table
+- "Last seen" values that are suspiciously close to the last Home Assistant restart are now flagged with a note and the restart time, since a restart alone can refresh that timestamp without the device having actually reported anything
+
+**Deutsch**
+- Fehler behoben: Der WebView der Companion App hat nach einem Update teils eine veraltete, gecachte Version des Panels behalten, wodurch neue Funktionen erst nach Beenden der App sichtbar wurden. Die Panel-JS-URL enthält jetzt die Versionsnummer als Cache-Buster, sodass jede Version garantiert frisch geladen wird
+- Das Geräte-Detail-Popup zeigt jetzt "Hinzugefügt am" sowie ein geräteweites "Zuletzt gesehen" (die jüngste Aktivität über alle Entitäten des Geräts hinweg), damit ein längst totes Gerät sofort auffällt
+- Neuer "Details anzeigen"-Umschalter pro Gerät, der für jede Entität Status, Zuletzt-gesehen-Zeitpunkt und alle Attribute als kompakte, ausgerichtete Tabelle einblendet
+- "Zuletzt gesehen"-Werte, die verdächtig nah am letzten Home-Assistant-Neustart liegen, werden jetzt mit einem Hinweis inkl. Neustart-Zeitpunkt gekennzeichnet, da ein Neustart allein diesen Zeitstempel auffrischen kann, ohne dass sich das Gerät wirklich gemeldet hat
+
 ## [2.1.0] - 2026-07-06
 
 **English**
