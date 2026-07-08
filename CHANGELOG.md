@@ -3,6 +3,14 @@
 All notable changes to Area Manager are documented here.
 Alle wesentlichen Änderungen an Area Manager werden hier dokumentiert.
 
+## [2.3.1] - 2026-07-08
+
+**English**
+- Fixed the panel JS sometimes still showing a stale, cached version after updating even with a full restart. The previous fix (a version query string) helped but wasn't sufficient by itself — the file is now served with an explicit `Cache-Control: no-cache` header, forcing the browser to always revalidate with the server instead of falling back on unpredictable heuristic caching
+
+**Deutsch**
+- Fehler behoben: Die Panel-JS-Datei zeigte nach einem Update manchmal weiterhin eine veraltete, gecachte Version, selbst nach einem vollständigen Neustart. Der bisherige Fix (Versions-Query-String) half, reichte aber allein nicht aus — die Datei wird jetzt mit explizitem `Cache-Control: no-cache`-Header ausgeliefert, wodurch der Browser immer beim Server nachfragen muss, statt sich auf unvorhersehbares heuristisches Caching zu verlassen
+
 ## [2.3.0] - 2026-07-08
 
 **English**

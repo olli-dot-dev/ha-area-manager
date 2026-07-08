@@ -1,9 +1,10 @@
 import logging
+from functools import partial
 from pathlib import Path
 
 import voluptuous as vol
+from aiohttp import web
 from homeassistant.components import frontend, websocket_api
-from homeassistant.components.http import StaticPathConfig
 from homeassistant.components.panel_custom import async_register_panel
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -65,6 +66,16 @@ async def _ws_get_setup_time(hass: HomeAssistant, connection, msg) -> None:
     connection.send_result(msg["id"], hass.data[DOMAIN].get("setup_time"))
 
 
+async def _serve_panel_js(path: str, request: web.Request) -> web.FileResponse:
+    # cache_headers=False on async_register_static_paths (our previous approach)
+    # doesn't mean "don't cache" - for a single file it just means no explicit
+    # Cache-Control header at all, leaving browsers to fall back on unpredictable
+    # heuristic caching. "no-cache" forces revalidation on every request; aiohttp's
+    # FileResponse still sets Last-Modified/ETag so an unchanged file gets an
+    # efficient 304 rather than a full re-download.
+    return web.FileResponse(path, headers={"Cache-Control": "no-cache"})
+
+
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     return True
 
@@ -79,9 +90,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN]["setup_time"] = dt_util.utcnow().isoformat()
 
     panel_js = Path(__file__).parent / "area-manager-panel.js"
-    await hass.http.async_register_static_paths(
-        [StaticPathConfig(_PANEL_JS_URL, str(panel_js), cache_headers=False)]
-    )
+    # A plain route (not async_register_static_paths) so we control the
+    # Cache-Control header ourselves - see _serve_panel_js. aiohttp raises if
+    # the same route is added twice, which a config-entry reload would trigger
+    # without a full restart, so guard with our own flag (hass.data survives
+    # unload/reload within the same running process).
+    if not hass.data[DOMAIN].get("js_route_registered"):
+        hass.http.app.router.add_route(
+            "GET", _PANEL_JS_URL, partial(_serve_panel_js, str(panel_js))
+        )
+        hass.data[DOMAIN]["js_route_registered"] = True
 
     # A reload (or remove + re-add without restarting HA) re-runs this without HA
     # having forgotten the previously registered panel, so registering again would
@@ -89,11 +107,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if _PANEL_URL_PATH in hass.data.get(frontend.DATA_PANELS, {}):
         frontend.async_remove_panel(hass, _PANEL_URL_PATH)
 
-    # The Companion App's WebView can aggressively cache the panel JS regardless
-    # of cache_headers=False above, so new versions may not show up after an
-    # update. Appending the integration version as a query string makes each
-    # release a distinct URL, forcing a real fetch instead of relying on the
-    # client to honor cache-control correctly.
+    # Extra defense-in-depth on top of the Cache-Control header above: append
+    # the integration version as a query string, so a release is also a new
+    # URL entirely, not just a header-driven revalidation.
     integration = await async_get_integration(hass, DOMAIN)
     js_url = f"{_PANEL_JS_URL}?v={integration.version}"
 
