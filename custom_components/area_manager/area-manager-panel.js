@@ -147,6 +147,7 @@ class AreaManagerPanel extends HTMLElement {
     this._filterDomain = "";
     this._entitiesExpanded = false;
     this._setupTime = null;
+    this._narrow = false;
   }
 
   _t(key, ...args) {
@@ -162,6 +163,15 @@ class AreaManagerPanel extends HTMLElement {
       this._loaded = true;
       this._load();
     }
+  }
+
+  // HA passes this to every custom panel so it knows whether the sidebar is
+  // currently collapsed (mobile/Companion App) — drives whether the header's
+  // <ha-menu-button> shows itself, see _render().
+  set narrow(value) {
+    const changed = this._narrow !== value;
+    this._narrow = value;
+    if (changed && this._loaded) this._render();
   }
 
   async _load() {
@@ -343,6 +353,18 @@ class AreaManagerPanel extends HTMLElement {
       this._error = this._t("errorSave", e.message);
     }
     this._saving = false;
+    this._render();
+  }
+
+  async _bulkIgnore() {
+    if (this._selected.size === 0) return;
+    const ids = [...this._selected];
+    ids.forEach((deviceId) => {
+      this._ignoredIds.add(deviceId);
+      delete this._pending[deviceId];
+      this._selected.delete(deviceId);
+    });
+    await this._saveIgnored();
     this._render();
   }
 
@@ -604,11 +626,6 @@ class AreaManagerPanel extends HTMLElement {
       if (show) visible++;
     });
 
-    if (this._view === "unassigned") {
-      const badge = this.shadowRoot.getElementById("badge");
-      if (badge) badge.textContent = this._t("badge", visible);
-    }
-
     const emptyFilter = this.shadowRoot.getElementById("empty-filter");
     if (emptyFilter) emptyFilter.style.display = visible === 0 ? "" : "none";
 
@@ -632,7 +649,10 @@ class AreaManagerPanel extends HTMLElement {
     const bar = this.shadowRoot.getElementById("bulk-bar");
     if (bar) bar.style.display = this._selected.size === 0 ? "none" : "";
     const count = this.shadowRoot.getElementById("bulk-count");
-    if (count) count.textContent = this._t("bulkSelectedCount", this._selected.size);
+    if (count) {
+      count.textContent = this._selected.size;
+      count.title = this._t("bulkSelectedCount", this._selected.size);
+    }
     this._syncSelectAllCheckbox();
   }
 
@@ -667,6 +687,11 @@ class AreaManagerPanel extends HTMLElement {
         bulkAssign.disabled = !e.target.value;
       });
       bulkAssign.addEventListener("click", () => this._bulkAssign(bulkAreaSelect.value));
+    }
+
+    const bulkIgnore = this.shadowRoot.getElementById("bulk-ignore");
+    if (bulkIgnore) {
+      bulkIgnore.addEventListener("click", () => this._bulkIgnore());
     }
 
     const bulkClear = this.shadowRoot.getElementById("bulk-clear");
@@ -874,13 +899,14 @@ class AreaManagerPanel extends HTMLElement {
       .join("");
     return `
       <div class="bulk-bar" id="bulk-bar" style="${this._selected.size === 0 ? "display:none" : ""}">
-        <span class="bulk-count" id="bulk-count">${this._t("bulkSelectedCount", this._selected.size)}</span>
+        <span class="bulk-count" id="bulk-count" title="${this._t("bulkSelectedCount", this._selected.size)}">${this._selected.size}</span>
         <select class="area-select" id="bulk-area-select">
           <option value="">${this._t("chooseArea")}</option>
           <option value="${AreaManagerPanel.UNASSIGN_SENTINEL}">${this._t("unassignOption")}</option>
           ${areaOptions}
         </select>
         <button class="btn-assign" id="bulk-assign" disabled>${this._t("assign")}</button>
+        ${this._view === "unassigned" ? `<button class="btn-ignore" id="bulk-ignore">${this._t("ignore")}</button>` : ""}
         <button class="btn-bulk-clear" id="bulk-clear">${this._t("bulkClear")}</button>
       </div>`;
   }
@@ -920,12 +946,24 @@ class AreaManagerPanel extends HTMLElement {
       <style>
         :host {
           display: block;
-          padding: 16px 24px;
+          padding: 8px 24px 16px;
           font-family: var(--paper-font-body1_-_font-family, Roboto, sans-serif);
           color: var(--primary-text-color);
         }
-        .header { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
-        h1 { font-size: 1.6em; font-weight: 400; margin: 0; }
+        .header {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          position: sticky;
+          top: 0;
+          z-index: 10;
+          margin: -8px -24px 4px;
+          padding: 8px 24px;
+          background: var(--card-background-color, #fff);
+          border-bottom: 1px solid var(--divider-color, #e0e0e0);
+        }
+        ha-menu-button { flex-shrink: 0; margin-left: -24px; }
+        h1 { font-size: var(--ha-font-size-xl, 20px); font-weight: var(--ha-font-weight-normal, 400); margin: 0; }
         .badge {
           background: var(--primary-color, #03a9f4);
           color: var(--text-primary-color, #fff);
@@ -1046,6 +1084,7 @@ class AreaManagerPanel extends HTMLElement {
           position: sticky;
           bottom: 12px;
           display: flex;
+          flex-wrap: wrap;
           align-items: center;
           gap: 10px;
           background: var(--card-background-color, #fff);
@@ -1056,8 +1095,21 @@ class AreaManagerPanel extends HTMLElement {
           box-shadow: 0 4px 16px rgba(0,0,0,0.15);
           z-index: 2;
         }
-        .bulk-bar .area-select { width: auto; min-width: 180px; }
-        .bulk-count { font-size: 0.9em; font-weight: 500; margin-right: 4px; }
+        .bulk-bar .area-select { width: auto; min-width: 180px; flex: 1 1 180px; }
+        .bulk-count {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 22px;
+          height: 22px;
+          padding: 0 6px;
+          border-radius: 11px;
+          background: var(--primary-color, #03a9f4);
+          color: var(--text-primary-color, #fff);
+          font-size: 0.8em;
+          font-weight: 600;
+          flex-shrink: 0;
+        }
         .entity-count { font-size: 0.85em; color: var(--secondary-text-color, #888); }
         .entity-details { display: none; }
         table.entities-expanded .entity-details { display: block; }
@@ -1361,10 +1413,8 @@ class AreaManagerPanel extends HTMLElement {
     this.shadowRoot.innerHTML = `
       ${CSS}
       <div class="header">
+        <ha-menu-button id="menu-button"></ha-menu-button>
         <h1>${this._t("title")}</h1>
-        ${this._loaded && !this._error
-          ? `<span class="badge" id="badge">${this._t("badge", unassigned.length)}</span>`
-          : ""}
       </div>
       <p class="subtitle">${this._t("subtitle")}</p>
 
@@ -1387,6 +1437,14 @@ class AreaManagerPanel extends HTMLElement {
           ${this._view === "unassigned" ? unassignedContent : this._view === "assigned" ? assignedContent : ignoredContent}
         `}
     `;
+
+    // hass/narrow are complex values ha-menu-button expects as JS properties,
+    // not string attributes, so they can't be set via the template above.
+    const menuButton = this.shadowRoot.getElementById("menu-button");
+    if (menuButton) {
+      menuButton.hass = this._hass;
+      menuButton.narrow = this._narrow;
+    }
 
     // Tab switching
     this.shadowRoot.querySelectorAll(".tab").forEach((btn) => {
@@ -1443,7 +1501,7 @@ class AreaManagerPanel extends HTMLElement {
 
     // Unassigned-only view listeners (ignore/delete)
     if (this._view === "unassigned") {
-      this.shadowRoot.querySelectorAll(".btn-ignore").forEach((btn) =>
+      this.shadowRoot.querySelectorAll(".btn-ignore[data-device]").forEach((btn) =>
         btn.addEventListener("click", (e) => this._ignoreDevice(e.target.dataset.device))
       );
 

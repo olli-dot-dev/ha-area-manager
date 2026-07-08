@@ -18,7 +18,7 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes (English/Deutsch).
 
 - **Overview** — lists all devices that have no area assigned yet
 - **Quick assignment** — pick an area from a dropdown and assign per device or save all at once
-- **Bulk assignment** — select multiple devices via checkbox and assign them all to one area at once; selection is preserved while filtering
+- **Bulk assignment** — select multiple devices via checkbox and assign or ignore them all at once; selection is preserved while filtering
 - **Assigned tab** — review devices that already have an area and correct misassignments, including unassigning back to "Without area"
 - **Filter bar** — search by device name, manufacturer, or model; filter by manufacturer or integration domain
 - **Device detail dialog** — click any row to open a detail popup with device info and its full entity list; rename the device, assign/reassign its area, ignore/restore it, or delete it, all without leaving the popup
@@ -78,7 +78,7 @@ The **Area Manager** entry appears in the sidebar immediately.
 
 ### Bulk assignment
 
-Tick the checkbox on one or more rows (or the header checkbox to select all currently visible/filtered rows) to reveal a sticky bar at the bottom with an area dropdown, an **Assign** button, and a **Clear selection** button. The selection is kept even while you change the filter, so you can filter, select, filter again, and select more before assigning everyone at once. This works independently of — and alongside — the per-row dropdown.
+Tick the checkbox on one or more rows (or the header checkbox to select all currently visible/filtered rows) to reveal a sticky bar at the bottom with an area dropdown, an **Assign** button, an **Ignore** button (on the "Without area" tab), and a **Clear selection** button. The selection is kept even while you change the filter, so you can filter, select, filter again, and select more before assigning or ignoring everyone at once. This works independently of — and alongside — the per-row dropdown.
 
 ### Reviewing already-assigned devices
 

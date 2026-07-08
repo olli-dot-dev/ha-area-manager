@@ -3,6 +3,24 @@
 All notable changes to Area Manager are documented here.
 Alle wesentlichen Änderungen an Area Manager werden hier dokumentiert.
 
+## [2.3.0] - 2026-07-08
+
+**English**
+- Fixed being unable to navigate back to the Home Assistant dashboard from Area Manager on narrow/mobile screens (including the Companion App) — the panel now has its own menu button, matching every other Home Assistant panel, since custom panels must render this themselves
+- The header now uses Home Assistant's own title font size/weight, sits closer to the top, and stays fixed at the top of the screen while scrolling — matching native panels more closely
+- Removed the redundant "n without area" badge next to the title — the same count already shows in the "Without area" tab label right below
+- Fixed the bulk-assignment bar overflowing off-screen on narrow devices instead of wrapping onto multiple lines
+- The bulk-assignment bar's selection count is now a compact number badge instead of "n selected" text (the full text is still available as a tooltip)
+- Added a bulk **Ignore** action to the bulk-assignment bar (in the "Without area" tab), so multiple devices can be ignored at once, not just assigned
+
+**Deutsch**
+- Fehler behoben: Auf schmalen/mobilen Bildschirmen (inkl. Companion App) gab es aus dem Area Manager heraus keinen Weg zurück zum Home-Assistant-Dashboard — das Panel hat jetzt einen eigenen Menü-Button, wie jedes andere Home-Assistant-Panel auch, da Custom Panels diesen selbst bereitstellen müssen
+- Die Kopfzeile nutzt jetzt Home Assistants eigene Titel-Schriftgröße/-stärke, sitzt näher am oberen Rand und bleibt beim Scrollen oben fixiert — näher an nativen Panels
+- Das überflüssige "n ohne Bereich"-Badge neben dem Titel entfernt — dieselbe Zahl steht ja schon im "Ohne Bereich"-Tab direkt darunter
+- Fehler behoben: Die Bulk-Zuweisungsleiste lief auf schmalen Geräten über den Bildschirmrand hinaus, statt umzubrechen
+- Der Auswahlzähler in der Bulk-Zuweisungsleiste ist jetzt ein kompaktes Zahlen-Badge statt "n ausgewählt"-Text (voller Text weiterhin als Tooltip verfügbar)
+- Bulk-Aktion **Ignorieren** zur Bulk-Zuweisungsleiste hinzugefügt (im "Ohne Bereich"-Tab), damit sich mehrere Geräte auf einmal ignorieren lassen, nicht nur zuweisen
+
 ## [2.2.0] - 2026-07-07
 
 **English**
