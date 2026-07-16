@@ -1,8 +1,16 @@
 const TRANSLATIONS = {
   de: {
     title: "Area Manager",
-    subtitle: "Geräte ohne Bereichszuweisung erkennen und schnell einem Bereich zuordnen.",
+    subtitle: "Geräte und Entitäten ohne Bereichszuweisung erkennen und schnell einem Bereich zuordnen.",
     badge: (n) => `${n} ohne Bereich`,
+    kindDevices: (n) => `Geräte (${n})`,
+    kindEntities: (n) => `Entitäten (${n})`,
+    colEntity: "Entität",
+    searchPlaceholderEntities: "Entität oder ID suchen…",
+    allDoneEntities: "Alle Entitäten haben bereits einen Bereich. 🎉",
+    ignoredEmptyEntities: "Keine ignorierten Entitäten.",
+    assignedEmptyEntities: "Noch keine Entitäten mit Bereich.",
+    dlgEntityId: "Entity-ID",
     tabUnassigned: (n) => `Ohne Bereich (${n})`,
     tabIgnored: (n) => `Ignoriert (${n})`,
     tabAssigned: (n) => `Zugewiesen (${n})`,
@@ -64,8 +72,16 @@ const TRANSLATIONS = {
   },
   en: {
     title: "Area Manager",
-    subtitle: "Find devices without an area assignment and quickly assign them to one.",
+    subtitle: "Find devices and entities without an area assignment and quickly assign them to one.",
     badge: (n) => `${n} without area`,
+    kindDevices: (n) => `Devices (${n})`,
+    kindEntities: (n) => `Entities (${n})`,
+    colEntity: "Entity",
+    searchPlaceholderEntities: "Search by entity or ID…",
+    allDoneEntities: "All entities already have an area. 🎉",
+    ignoredEmptyEntities: "No ignored entities.",
+    assignedEmptyEntities: "No entities with an area yet.",
+    dlgEntityId: "Entity ID",
     tabUnassigned: (n) => `Without area (${n})`,
     tabIgnored: (n) => `Ignored (${n})`,
     tabAssigned: (n) => `Assigned (${n})`,
@@ -135,11 +151,13 @@ class AreaManagerPanel extends HTMLElement {
     this._areas = [];
     this._entities = [];
     this._ignoredIds = new Set();
+    this._ignoredEntityIds = new Set();
     this._pending = {};
     this._selected = new Set();
     this._saving = false;
     this._loaded = false;
     this._error = null;
+    this._kind = "device"; // "device" | "entity" - which source list the rest of the state below applies to
     this._view = "unassigned"; // "unassigned" | "ignored" | "assigned"
     this._confirmDelete = null;
     this._filterText = "";
@@ -148,6 +166,8 @@ class AreaManagerPanel extends HTMLElement {
     this._entitiesExpanded = false;
     this._setupTime = null;
     this._narrow = false;
+    this._sortKey = null; // null | "name" | "integration" | "area"
+    this._sortDir = "asc"; // "asc" | "desc"
   }
 
   _t(key, ...args) {
@@ -178,17 +198,19 @@ class AreaManagerPanel extends HTMLElement {
     this._error = null;
     this._render();
     try {
-      const [devices, areas, entities, ignoredIds, setupTime] = await Promise.all([
+      const [devices, areas, entities, ignoredIds, ignoredEntityIds, setupTime] = await Promise.all([
         this._hass.callWS({ type: "config/device_registry/list" }),
         this._hass.callWS({ type: "config/area_registry/list" }),
         this._hass.callWS({ type: "config/entity_registry/list" }),
         this._hass.callWS({ type: "area_manager/get_ignored" }),
+        this._hass.callWS({ type: "area_manager/get_ignored_entities" }),
         this._hass.callWS({ type: "area_manager/get_setup_time" }),
       ]);
       this._devices = devices;
       this._areas = areas.slice().sort((a, b) => a.name.localeCompare(b.name));
       this._entities = entities;
       this._ignoredIds = new Set(ignoredIds);
+      this._ignoredEntityIds = new Set(ignoredEntityIds);
       this._setupTime = setupTime;
     } catch (e) {
       this._error = this._t("errorLoad", e.message);
@@ -196,26 +218,96 @@ class AreaManagerPanel extends HTMLElement {
     this._render();
   }
 
+  // Entities without a device_id can be assigned an area directly (same
+  // entity_registry mechanism HA's own entity settings dialog uses) - a
+  // second "kind" the whole panel can switch to, alongside devices. Kept as
+  // a fully separate ignored-list/list source (see _currentList/_ignoredSet)
+  // rather than mixed into the device lists, since device ids and entity
+  // ids are different namespaces.
+  _deviceLessEntities() {
+    return this._entities.filter((e) => !e.device_id);
+  }
+
+  _currentList() {
+    return this._kind === "device" ? this._devices : this._deviceLessEntities();
+  }
+
+  _idKey() {
+    return this._kind === "device" ? "id" : "entity_id";
+  }
+
+  _ignoredSet() {
+    return this._kind === "device" ? this._ignoredIds : this._ignoredEntityIds;
+  }
+
+  _domainOf(item) {
+    return this._kind === "device"
+      ? (item.identifiers?.[0]?.[0] ?? "")
+      : item.entity_id.split(".")[0];
+  }
+
+  // Column-header sorting. Only "name"/"integration"/"area" are sortable
+  // (checkbox/entities/actions columns aren't); works identically for both
+  // kinds since name/area resolution already goes through the same
+  // device-vs-entity branches used elsewhere (_domainOf, area lookup).
+  _nameOf(item) {
+    return this._kind === "device"
+      ? (item.name_by_user || item.name || item.id)
+      : (item.name || item.original_name || item.entity_id);
+  }
+
+  _sortValue(item, key) {
+    if (key === "name") return this._nameOf(item);
+    if (key === "integration") return this._domainOf(item);
+    if (key === "area") {
+      const area = this._areas.find((a) => a.area_id === item.area_id);
+      return area ? area.name : "";
+    }
+    return "";
+  }
+
+  _sortRows(list) {
+    if (!this._sortKey) return list;
+    const dir = this._sortDir === "desc" ? -1 : 1;
+    const key = this._sortKey;
+    return [...list].sort((a, b) =>
+      this._sortValue(a, key).toString().localeCompare(this._sortValue(b, key).toString()) * dir
+    );
+  }
+
+  _sortableTh(key, label) {
+    const active = this._sortKey === key;
+    const arrow = active ? (this._sortDir === "asc" ? " ▲" : " ▼") : "";
+    return `<th class="sortable-th${active ? " sort-active" : ""}" data-sort="${key}">${label}${arrow}</th>`;
+  }
+
   async _saveIgnored() {
     try {
-      await this._hass.callWS({
-        type: "area_manager/set_ignored",
-        device_ids: [...this._ignoredIds],
-      });
+      if (this._kind === "device") {
+        await this._hass.callWS({
+          type: "area_manager/set_ignored",
+          device_ids: [...this._ignoredIds],
+        });
+      } else {
+        await this._hass.callWS({
+          type: "area_manager/set_ignored_entities",
+          entity_ids: [...this._ignoredEntityIds],
+        });
+      }
     } catch (e) {
       this._error = this._t("errorSave", e.message);
     }
   }
 
-  async _ignoreDevice(deviceId) {
-    this._ignoredIds.add(deviceId);
-    this._selected.delete(deviceId);
+  async _ignoreItem(id) {
+    this._ignoredSet().add(id);
+    this._selected.delete(id);
     await this._saveIgnored();
     this._render();
   }
 
-  async _unignoreDevice(deviceId) {
-    this._ignoredIds.delete(deviceId);
+  async _unignoreItem(id) {
+    this._ignoredSet().delete(id);
     await this._saveIgnored();
     this._render();
   }
@@ -266,20 +358,30 @@ class AreaManagerPanel extends HTMLElement {
     return this._t("dlgLastSeenNote", this._formatTimestamp(this._setupTime));
   }
 
-  async _saveDevice(deviceId) {
-    const raw = this._pending[deviceId];
+  // WS command + id field differ by kind, but both device_registry and
+  // entity_registry "update" calls take the same area_id semantics.
+  _updateWsType() {
+    return this._kind === "device" ? "config/device_registry/update" : "config/entity_registry/update";
+  }
+
+  _idField() {
+    return this._kind === "device" ? "device_id" : "entity_id";
+  }
+
+  async _saveItem(id) {
+    const raw = this._pending[id];
     if (!raw) return;
     const areaId = this._resolveAreaId(raw);
     try {
       await this._hass.callWS({
-        type: "config/device_registry/update",
-        device_id: deviceId,
+        type: this._updateWsType(),
+        [this._idField()]: id,
         area_id: areaId,
       });
-      delete this._pending[deviceId];
-      this._selected.delete(deviceId);
-      const dev = this._devices.find((d) => d.id === deviceId);
-      if (dev) dev.area_id = areaId;
+      delete this._pending[id];
+      this._selected.delete(id);
+      const item = this._currentList().find((d) => d[this._idKey()] === id);
+      if (item) item.area_id = areaId;
       this._render();
     } catch (e) {
       this._error = this._t("errorSave", e.message);
@@ -287,14 +389,16 @@ class AreaManagerPanel extends HTMLElement {
     }
   }
 
-  // Excludes pending entries that match the device's current area (e.g. the
+  // Excludes pending entries that match the item's current area (e.g. the
   // user picked a different area in the "assigned" tab, then picked it back)
   // so counts/save-all don't act on a no-op change.
   _pendingEntries() {
+    const list = this._currentList();
+    const idKey = this._idKey();
     return Object.entries(this._pending).filter(([id, v]) => {
       if (!v) return false;
-      const dev = this._devices.find((d) => d.id === id);
-      const current = (dev && dev.area_id) || "";
+      const item = list.find((d) => d[idKey] === id);
+      const current = (item && item.area_id) || "";
       return v !== current;
     });
   }
@@ -304,21 +408,25 @@ class AreaManagerPanel extends HTMLElement {
     if (!toSave.length) return;
     this._saving = true;
     this._render();
+    const wsType = this._updateWsType();
+    const idField = this._idField();
+    const idKey = this._idKey();
+    const list = this._currentList();
     try {
       await Promise.all(
-        toSave.map(([deviceId, raw]) =>
+        toSave.map(([id, raw]) =>
           this._hass.callWS({
-            type: "config/device_registry/update",
-            device_id: deviceId,
+            type: wsType,
+            [idField]: id,
             area_id: this._resolveAreaId(raw),
           })
         )
       );
-      toSave.forEach(([deviceId, raw]) => {
-        delete this._pending[deviceId];
-        this._selected.delete(deviceId);
-        const dev = this._devices.find((d) => d.id === deviceId);
-        if (dev) dev.area_id = this._resolveAreaId(raw);
+      toSave.forEach(([id, raw]) => {
+        delete this._pending[id];
+        this._selected.delete(id);
+        const item = list.find((d) => d[idKey] === id);
+        if (item) item.area_id = this._resolveAreaId(raw);
       });
     } catch (e) {
       this._error = this._t("errorSave", e.message);
@@ -333,21 +441,25 @@ class AreaManagerPanel extends HTMLElement {
     const ids = [...this._selected];
     this._saving = true;
     this._render();
+    const wsType = this._updateWsType();
+    const idField = this._idField();
+    const idKey = this._idKey();
+    const list = this._currentList();
     try {
       await Promise.all(
-        ids.map((deviceId) =>
+        ids.map((id) =>
           this._hass.callWS({
-            type: "config/device_registry/update",
-            device_id: deviceId,
+            type: wsType,
+            [idField]: id,
             area_id: areaId,
           })
         )
       );
-      ids.forEach((deviceId) => {
-        delete this._pending[deviceId];
-        this._selected.delete(deviceId);
-        const dev = this._devices.find((d) => d.id === deviceId);
-        if (dev) dev.area_id = areaId;
+      ids.forEach((id) => {
+        delete this._pending[id];
+        this._selected.delete(id);
+        const item = list.find((d) => d[idKey] === id);
+        if (item) item.area_id = areaId;
       });
     } catch (e) {
       this._error = this._t("errorSave", e.message);
@@ -359,10 +471,11 @@ class AreaManagerPanel extends HTMLElement {
   async _bulkIgnore() {
     if (this._selected.size === 0) return;
     const ids = [...this._selected];
-    ids.forEach((deviceId) => {
-      this._ignoredIds.add(deviceId);
-      delete this._pending[deviceId];
-      this._selected.delete(deviceId);
+    const set = this._ignoredSet();
+    ids.forEach((id) => {
+      set.add(id);
+      delete this._pending[id];
+      this._selected.delete(id);
     });
     await this._saveIgnored();
     this._render();
@@ -533,7 +646,7 @@ class AreaManagerPanel extends HTMLElement {
     assignBtn.addEventListener("click", () => {
       this._pending[device.id] = areaSelect.value;
       dlg.close();
-      this._saveDevice(device.id);
+      this._saveItem(device.id);
     });
 
     // Ignore / unignore toggle (only offered for devices without an area)
@@ -541,8 +654,8 @@ class AreaManagerPanel extends HTMLElement {
     if (ignoreToggle) {
       ignoreToggle.addEventListener("click", () => {
         dlg.close();
-        if (isIgnored) this._unignoreDevice(device.id);
-        else this._ignoreDevice(device.id);
+        if (isIgnored) this._unignoreItem(device.id);
+        else this._ignoreItem(device.id);
       });
     }
 
@@ -603,6 +716,86 @@ class AreaManagerPanel extends HTMLElement {
           toggleDetails.textContent = detailsExpanded ? this._t("dlgHideDetails") : this._t("dlgShowDetails");
         });
       }
+    }
+  }
+
+  // Simpler counterpart to _showDeviceDetail: entities without a device
+  // have no manufacturer/model, no rename (device-registry-only concept),
+  // no delete (their config lives in YAML/registry elsewhere and would just
+  // reappear on reload), and no child-entity list since the entity itself
+  // is the atomic item. Just area assign + ignore, plus current state for
+  // context.
+  async _showEntityDetail(entity) {
+    const existing = this.shadowRoot.getElementById("area-mgr-dlg");
+    if (existing) existing.remove();
+
+    const label = entity.name || entity.original_name || entity.entity_id;
+    const domain = this._domainOf(entity);
+    const areaName = this._areas.find((a) => a.area_id === entity.area_id)?.name
+      || this._t("noArea");
+    const isIgnored = this._ignoredEntityIds.has(entity.entity_id);
+    const stateObj = this._hass.states?.[entity.entity_id];
+    const lastSeen = stateObj?.last_reported || stateObj?.last_updated;
+    const lastSeenNote = this._lastSeenNote(lastSeen);
+
+    const areaOptionsHtml = this._areas
+      .map((a) => `<option value="${a.area_id}" ${a.area_id === entity.area_id ? "selected" : ""}>${a.name}</option>`)
+      .join("");
+    const areaSelectOptions = entity.area_id
+      ? `<option value="${AreaManagerPanel.UNASSIGN_SENTINEL}">${this._t("unassignOption")}</option>${areaOptionsHtml}`
+      : `<option value="">${this._t("chooseArea")}</option>${areaOptionsHtml}`;
+
+    const dlg = document.createElement("dialog");
+    dlg.id = "area-mgr-dlg";
+    dlg.innerHTML = `
+      <div class="dlg-header">
+        <div class="dlg-title-row">
+          <h2 class="dlg-title">${label}</h2>
+        </div>
+        <button class="dlg-close" id="dlg-close" title="${this._t("dlgClose")}">✕</button>
+      </div>
+      <div class="dlg-body">
+        <dl class="dlg-grid">
+          <dt>${this._t("dlgIntegration")}</dt><dd><span class="dlg-chip">${domain}</span></dd>
+          <dt>${this._t("dlgArea")}</dt><dd>${areaName}</dd>
+          <dt>${this._t("dlgEntityId")}</dt><dd><span class="dlg-chip">${entity.entity_id}</span></dd>
+          ${stateObj ? `<dt>${this._t("dlgState")}</dt><dd>${stateObj.state}</dd>` : ""}
+          ${lastSeen ? `<dt>${this._t("dlgLastSeen")}</dt><dd>${this._formatTimestamp(lastSeen)}${lastSeenNote ? `<div class="dlg-lastseen-note">${lastSeenNote}</div>` : ""}</dd>` : ""}
+        </dl>
+        <div class="dlg-actions">
+          <select class="area-select" id="dlg-area-select" data-current-area="${entity.area_id || ""}">
+            ${areaSelectOptions}
+          </select>
+          <button class="btn-assign" id="dlg-assign" disabled>${this._t("assign")}</button>
+          ${!entity.area_id ? `<button class="${isIgnored ? "btn-unignore" : "btn-ignore"}" id="dlg-ignore-toggle">${isIgnored ? this._t("unignore") : this._t("ignore")}</button>` : ""}
+        </div>
+      </div>`;
+
+    this.shadowRoot.appendChild(dlg);
+    dlg.showModal();
+
+    dlg.addEventListener("close", () => dlg.remove());
+    dlg.querySelector("#dlg-close").addEventListener("click", () => dlg.close());
+    dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
+
+    const areaSelect = dlg.querySelector("#dlg-area-select");
+    const assignBtn = dlg.querySelector("#dlg-assign");
+    areaSelect.addEventListener("change", (e) => {
+      assignBtn.disabled = e.target.value === areaSelect.dataset.currentArea;
+    });
+    assignBtn.addEventListener("click", () => {
+      this._pending[entity.entity_id] = areaSelect.value;
+      dlg.close();
+      this._saveItem(entity.entity_id);
+    });
+
+    const ignoreToggle = dlg.querySelector("#dlg-ignore-toggle");
+    if (ignoreToggle) {
+      ignoreToggle.addEventListener("click", () => {
+        dlg.close();
+        if (isIgnored) this._unignoreItem(entity.entity_id);
+        else this._ignoreItem(entity.entity_id);
+      });
     }
   }
 
@@ -893,6 +1086,124 @@ class AreaManagerPanel extends HTMLElement {
     }).join("");
   }
 
+  // Entity-kind row renderers: mirror the device ones above but simpler -
+  // no manufacturer/model/entities-column (the entity itself is the atomic
+  // item), no delete/confirm-delete flow. Keep using the "data-device"
+  // attribute name for the row id (an entity_id here) so the generic bulk
+  // select/area-assign wiring below - which is already parameterized by
+  // _kind - doesn't need its own separate set of selectors.
+  _renderUnassignedEntityRows(unassigned) {
+    const areaOptions = this._areas
+      .map((a) => `<option value="${a.area_id}">${a.name}</option>`)
+      .join("");
+
+    return unassigned.map((e) => {
+      const label = e.name || e.original_name || e.entity_id;
+      const domain = this._domainOf(e);
+      const selected = this._pending[e.entity_id] || "";
+
+      return `
+        <tr class="device-row"
+            data-device-id="${e.entity_id}"
+            data-name="${label}"
+            data-domain="${domain}"
+            data-sub="${e.entity_id}">
+          <td class="cell-checkbox">
+            <input type="checkbox" class="row-checkbox" data-device="${e.entity_id}" ${this._selected.has(e.entity_id) ? "checked" : ""}>
+          </td>
+          <td class="cell-name">
+            <div class="device-name">${label}</div>
+            <div class="device-sub">${e.entity_id}</div>
+          </td>
+          <td class="cell-integration">
+            <span class="domain-chip">${domain}</span>
+          </td>
+          <td class="cell-area">
+            <select class="area-select" data-device="${e.entity_id}" data-current-area="">
+              <option value="">${this._t("chooseArea")}</option>
+              ${areaOptions}
+            </select>
+          </td>
+          <td class="cell-actions">
+            <div class="actions-wrap">
+            <button class="btn-assign" data-device="${e.entity_id}" ${!selected ? "disabled" : ""}>${this._t("assign")}</button>
+            <button class="btn-ignore" data-device="${e.entity_id}">${this._t("ignore")}</button>
+            </div>
+          </td>
+        </tr>`;
+    }).join("");
+  }
+
+  _renderAssignedEntityRows(assigned) {
+    return assigned.map((e) => {
+      const label = e.name || e.original_name || e.entity_id;
+      const domain = this._domainOf(e);
+      const currentArea = e.area_id || "";
+      const pendingValue = this._pending[e.entity_id];
+      const selectedValue = pendingValue !== undefined ? pendingValue : currentArea;
+      const isDirty = pendingValue !== undefined && pendingValue !== currentArea;
+
+      const areaOptions = this._areas
+        .map((a) => `<option value="${a.area_id}" ${a.area_id === selectedValue ? "selected" : ""}>${a.name}</option>`)
+        .join("");
+
+      return `
+        <tr class="device-row"
+            data-device-id="${e.entity_id}"
+            data-name="${label}"
+            data-domain="${domain}"
+            data-sub="${e.entity_id}">
+          <td class="cell-checkbox">
+            <input type="checkbox" class="row-checkbox" data-device="${e.entity_id}" ${this._selected.has(e.entity_id) ? "checked" : ""}>
+          </td>
+          <td class="cell-name">
+            <div class="device-name">${label}</div>
+            <div class="device-sub">${e.entity_id}</div>
+          </td>
+          <td class="cell-integration">
+            <span class="domain-chip">${domain}</span>
+          </td>
+          <td class="cell-area">
+            <select class="area-select" data-device="${e.entity_id}" data-current-area="${currentArea}">
+              <option value="${AreaManagerPanel.UNASSIGN_SENTINEL}" ${selectedValue === AreaManagerPanel.UNASSIGN_SENTINEL ? "selected" : ""}>${this._t("unassignOption")}</option>
+              ${areaOptions}
+            </select>
+          </td>
+          <td class="cell-actions">
+            <div class="actions-wrap">
+            <button class="btn-assign" data-device="${e.entity_id}" ${!isDirty ? "disabled" : ""}>${this._t("assign")}</button>
+            </div>
+          </td>
+        </tr>`;
+    }).join("");
+  }
+
+  _renderIgnoredEntityRows(ignored) {
+    return ignored.map((e) => {
+      const label = e.name || e.original_name || e.entity_id;
+      const domain = this._domainOf(e);
+      const area = this._areas.find((a) => a.area_id === e.area_id);
+      const areaLabel = area ? area.name : this._t("noArea");
+
+      return `
+        <tr class="device-row" data-device-id="${e.entity_id}">
+          <td class="cell-name">
+            <div class="device-name">${label}</div>
+            <div class="device-sub">${e.entity_id}</div>
+          </td>
+          <td class="cell-integration">
+            <span class="domain-chip">${domain}</span>
+          </td>
+          <td class="cell-area">
+            <span class="area-label ${!e.area_id ? "muted" : ""}">${areaLabel}</span>
+          </td>
+          <td class="cell-actions">
+            <button class="btn-unignore" data-device="${e.entity_id}">${this._t("unignore")}</button>
+          </td>
+        </tr>`;
+    }).join("");
+  }
+
   _renderBulkBar() {
     const areaOptions = this._areas
       .map((a) => `<option value="${a.area_id}">${a.name}</option>`)
@@ -912,34 +1223,41 @@ class AreaManagerPanel extends HTMLElement {
   }
 
   _render() {
-    const unassigned = this._devices.filter((d) => !d.area_id && !this._ignoredIds.has(d.id));
-    const ignored = this._devices.filter((d) => this._ignoredIds.has(d.id));
-    const assigned = this._devices.filter((d) => !!d.area_id);
+    const isDeviceKind = this._kind === "device";
+    const sourceList = this._currentList();
+    const ignoredSet = this._ignoredSet();
+    const idKey = this._idKey();
+
+    const unassigned = this._sortRows(sourceList.filter((d) => !d.area_id && !ignoredSet.has(d[idKey])));
+    const ignored = this._sortRows(sourceList.filter((d) => ignoredSet.has(d[idKey])));
+    const assigned = this._sortRows(sourceList.filter((d) => !!d.area_id));
     const pendingCount = this._pendingEntries().length;
     const hasFilter = this._filterText || this._filterManufacturer || this._filterDomain;
 
-    const manufacturers = [
+    // Manufacturer is a device-only concept (no equivalent for entities),
+    // so these stay empty - and unused - in entity kind.
+    const manufacturers = isDeviceKind ? [
       ...new Set(unassigned.map((d) => d.manufacturer).filter(Boolean)),
-    ].sort((a, b) => a.localeCompare(b));
+    ].sort((a, b) => a.localeCompare(b)) : [];
 
     const domains = [
-      ...new Set(unassigned.map((d) => d.identifiers?.[0]?.[0]).filter(Boolean)),
+      ...new Set(unassigned.map((d) => this._domainOf(d)).filter(Boolean)),
     ].sort((a, b) => a.localeCompare(b));
 
-    const assignedManufacturers = [
+    const assignedManufacturers = isDeviceKind ? [
       ...new Set(assigned.map((d) => d.manufacturer).filter(Boolean)),
-    ].sort((a, b) => a.localeCompare(b));
+    ].sort((a, b) => a.localeCompare(b)) : [];
 
     const assignedDomains = [
-      ...new Set(assigned.map((d) => d.identifiers?.[0]?.[0]).filter(Boolean)),
+      ...new Set(assigned.map((d) => this._domainOf(d)).filter(Boolean)),
     ].sort((a, b) => a.localeCompare(b));
 
-    const ignoredManufacturers = [
+    const ignoredManufacturers = isDeviceKind ? [
       ...new Set(ignored.map((d) => d.manufacturer).filter(Boolean)),
-    ].sort((a, b) => a.localeCompare(b));
+    ].sort((a, b) => a.localeCompare(b)) : [];
 
     const ignoredDomains = [
-      ...new Set(ignored.map((d) => d.identifiers?.[0]?.[0]).filter(Boolean)),
+      ...new Set(ignored.map((d) => this._domainOf(d)).filter(Boolean)),
     ].sort((a, b) => a.localeCompare(b));
 
     const CSS = `
@@ -973,6 +1291,30 @@ class AreaManagerPanel extends HTMLElement {
           font-weight: 500;
         }
         .subtitle { color: var(--secondary-text-color, #888); margin: 4px 0 16px; font-size: 0.95em; }
+        .kind-switch {
+          display: inline-flex;
+          gap: 2px;
+          margin-bottom: 14px;
+          padding: 3px;
+          border-radius: 8px;
+          background: var(--secondary-background-color, #f0f0f0);
+        }
+        .kind-btn {
+          padding: 6px 16px;
+          border: none;
+          border-radius: 6px;
+          background: none;
+          cursor: pointer;
+          font-size: 0.9em;
+          color: var(--secondary-text-color, #888);
+          transition: background 0.15s, color 0.15s;
+        }
+        .kind-btn.active {
+          background: var(--card-background-color, #fff);
+          color: var(--primary-text-color);
+          font-weight: 500;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+        }
         .tabs {
           display: flex;
           gap: 4px;
@@ -1068,6 +1410,15 @@ class AreaManagerPanel extends HTMLElement {
           color: var(--secondary-text-color, #888);
           border-bottom: 1px solid var(--divider-color, #e0e0e0);
         }
+        .sortable-th {
+          cursor: pointer;
+          user-select: none;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .sortable-th:hover { color: var(--primary-text-color); }
+        .sortable-th.sort-active { color: var(--primary-color, #03a9f4); }
         .device-row:not(:last-child) td { border-bottom: 1px solid var(--divider-color, #e0e0e0); }
         .device-row:hover { background: var(--table-row-alternative-background-color, rgba(0, 0, 0, 0.06)); }
         .device-row--confirming { background: rgba(244,67,54,0.06); }
@@ -1311,15 +1662,15 @@ class AreaManagerPanel extends HTMLElement {
           <colgroup>
             <col style="width:5%">
             <col style="width:31%">
-            <col style="width:9%">
-            <col style="width:19%">
+            <col style="width:12%">
+            <col style="width:16%">
             <col style="width:17%">
             <col style="width:19%">
           </colgroup>
           <thead><tr>
             <th class="cell-checkbox"><input type="checkbox" id="select-all" title="${this._t("selectAll")}"></th>
-            <th>${this._t("colDevice")}</th>
-            <th>${this._t("colIntegration")}</th>
+            ${this._sortableTh("name", this._t("colDevice"))}
+            ${this._sortableTh("integration", this._t("colIntegration"))}
             <th>${this._t("colEntities")}</th>
             <th>${this._t("colArea")}</th>
             <th>${this._t("colActions")}</th>
@@ -1348,16 +1699,16 @@ class AreaManagerPanel extends HTMLElement {
         <div class="table-scroll"><table>
           <colgroup>
             <col style="width:32%">
-            <col style="width:10%">
-            <col style="width:20%">
+            <col style="width:13%">
+            <col style="width:17%">
             <col style="width:18%">
             <col style="width:20%">
           </colgroup>
           <thead><tr>
-            <th>${this._t("colDevice")}</th>
-            <th>${this._t("colIntegration")}</th>
+            ${this._sortableTh("name", this._t("colDevice"))}
+            ${this._sortableTh("integration", this._t("colIntegration"))}
             <th>${this._t("colEntities")}</th>
-            <th>${this._t("colCurrentArea")}</th>
+            ${this._sortableTh("area", this._t("colCurrentArea"))}
             <th>${this._t("colActions")}</th>
           </tr></thead>
           <tbody>${this._renderIgnoredRows(ignored)}</tbody>
@@ -1393,20 +1744,127 @@ class AreaManagerPanel extends HTMLElement {
           <colgroup>
             <col style="width:5%">
             <col style="width:31%">
-            <col style="width:9%">
-            <col style="width:19%">
+            <col style="width:12%">
+            <col style="width:16%">
             <col style="width:17%">
             <col style="width:19%">
           </colgroup>
           <thead><tr>
             <th class="cell-checkbox"><input type="checkbox" id="select-all" title="${this._t("selectAll")}"></th>
-            <th>${this._t("colDevice")}</th>
-            <th>${this._t("colIntegration")}</th>
+            ${this._sortableTh("name", this._t("colDevice"))}
+            ${this._sortableTh("integration", this._t("colIntegration"))}
             <th>${this._t("colEntities")}</th>
-            <th>${this._t("colArea")}</th>
+            ${this._sortableTh("area", this._t("colArea"))}
             <th>${this._t("colActions")}</th>
           </tr></thead>
           <tbody>${this._renderAssignedRows(assigned)}</tbody>
+        </table></div>
+        ${this._renderBulkBar()}`;
+
+    // Entity-kind counterparts: same structure, no manufacturer filter, no
+    // "Entities" column/toggle (the entity itself is the atomic item).
+    const unassignedEntityContent = unassigned.length === 0
+      ? `<div class="empty">${this._t("allDoneEntities")}</div>`
+      : `
+        <div class="filter-bar">
+          <input type="search" id="filter-text" class="filter-input"
+            placeholder="${this._t("searchPlaceholderEntities")}" value="${this._filterText}">
+          <select id="filter-domain" class="filter-select">
+            <option value="">${this._t("allIntegrations")}</option>
+            ${domains.map((d) => `<option value="${d}" ${this._filterDomain === d ? "selected" : ""}>${d}</option>`).join("")}
+          </select>
+          <button class="btn-clear-filter" id="clear-filter" style="${hasFilter ? "" : "display:none"}">${this._t("clearFilter")}</button>
+        </div>
+        <div class="toolbar">
+          <button class="btn-save-all" id="save-all" ${this._saving || pendingCount === 0 ? "disabled" : ""}>
+            ${this._saving ? this._t("saving") : this._t("saveAll", pendingCount)}
+          </button>
+          <button class="btn-reload" id="reload">${this._t("reload")}</button>
+        </div>
+        <div class="empty-filter" id="empty-filter">${this._t("noFilterMatch")}</div>
+        <div class="table-scroll"><table>
+          <colgroup>
+            <col style="width:5%">
+            <col style="width:37%">
+            <col style="width:18%">
+            <col style="width:20%">
+            <col style="width:20%">
+          </colgroup>
+          <thead><tr>
+            <th class="cell-checkbox"><input type="checkbox" id="select-all" title="${this._t("selectAll")}"></th>
+            ${this._sortableTh("name", this._t("colEntity"))}
+            ${this._sortableTh("integration", this._t("colIntegration"))}
+            <th>${this._t("colArea")}</th>
+            <th>${this._t("colActions")}</th>
+          </tr></thead>
+          <tbody>${this._renderUnassignedEntityRows(unassigned)}</tbody>
+        </table></div>
+        ${this._renderBulkBar()}`;
+
+    const ignoredEntityContent = ignored.length === 0
+      ? `<div class="empty">${this._t("ignoredEmptyEntities")}</div>`
+      : `
+        <div class="filter-bar">
+          <input type="search" id="filter-text" class="filter-input"
+            placeholder="${this._t("searchPlaceholderEntities")}" value="${this._filterText}">
+          <select id="filter-domain" class="filter-select">
+            <option value="">${this._t("allIntegrations")}</option>
+            ${ignoredDomains.map((d) => `<option value="${d}" ${this._filterDomain === d ? "selected" : ""}>${d}</option>`).join("")}
+          </select>
+          <button class="btn-clear-filter" id="clear-filter" style="${hasFilter ? "" : "display:none"}">${this._t("clearFilter")}</button>
+        </div>
+        <div class="empty-filter" id="empty-filter">${this._t("noFilterMatch")}</div>
+        <div class="table-scroll"><table>
+          <colgroup>
+            <col style="width:42%">
+            <col style="width:18%">
+            <col style="width:20%">
+            <col style="width:20%">
+          </colgroup>
+          <thead><tr>
+            ${this._sortableTh("name", this._t("colEntity"))}
+            ${this._sortableTh("integration", this._t("colIntegration"))}
+            ${this._sortableTh("area", this._t("colCurrentArea"))}
+            <th>${this._t("colActions")}</th>
+          </tr></thead>
+          <tbody>${this._renderIgnoredEntityRows(ignored)}</tbody>
+        </table></div>`;
+
+    const assignedEntityContent = assigned.length === 0
+      ? `<div class="empty">${this._t("assignedEmptyEntities")}</div>`
+      : `
+        <div class="filter-bar">
+          <input type="search" id="filter-text" class="filter-input"
+            placeholder="${this._t("searchPlaceholderEntities")}" value="${this._filterText}">
+          <select id="filter-domain" class="filter-select">
+            <option value="">${this._t("allIntegrations")}</option>
+            ${assignedDomains.map((d) => `<option value="${d}" ${this._filterDomain === d ? "selected" : ""}>${d}</option>`).join("")}
+          </select>
+          <button class="btn-clear-filter" id="clear-filter" style="${hasFilter ? "" : "display:none"}">${this._t("clearFilter")}</button>
+        </div>
+        <div class="toolbar">
+          <button class="btn-save-all" id="save-all" ${this._saving || pendingCount === 0 ? "disabled" : ""}>
+            ${this._saving ? this._t("saving") : this._t("saveAll", pendingCount)}
+          </button>
+          <button class="btn-reload" id="reload">${this._t("reload")}</button>
+        </div>
+        <div class="empty-filter" id="empty-filter">${this._t("noFilterMatch")}</div>
+        <div class="table-scroll"><table>
+          <colgroup>
+            <col style="width:5%">
+            <col style="width:37%">
+            <col style="width:18%">
+            <col style="width:20%">
+            <col style="width:20%">
+          </colgroup>
+          <thead><tr>
+            <th class="cell-checkbox"><input type="checkbox" id="select-all" title="${this._t("selectAll")}"></th>
+            ${this._sortableTh("name", this._t("colEntity"))}
+            ${this._sortableTh("integration", this._t("colIntegration"))}
+            ${this._sortableTh("area", this._t("colArea"))}
+            <th>${this._t("colActions")}</th>
+          </tr></thead>
+          <tbody>${this._renderAssignedEntityRows(assigned)}</tbody>
         </table></div>
         ${this._renderBulkBar()}`;
 
@@ -1423,6 +1881,14 @@ class AreaManagerPanel extends HTMLElement {
       ${!this._loaded && !this._error
         ? `<div class="loading">${this._t("loading")}</div>`
         : `
+          <div class="kind-switch">
+            <button class="kind-btn ${isDeviceKind ? "active" : ""}" data-kind="device">
+              ${this._t("kindDevices", this._devices.length)}
+            </button>
+            <button class="kind-btn ${!isDeviceKind ? "active" : ""}" data-kind="entity">
+              ${this._t("kindEntities", this._deviceLessEntities().length)}
+            </button>
+          </div>
           <div class="tabs">
             <button class="tab ${this._view === "unassigned" ? "active" : ""}" data-view="unassigned">
               ${this._t("tabUnassigned", unassigned.length)}
@@ -1434,7 +1900,11 @@ class AreaManagerPanel extends HTMLElement {
               ${this._t("tabAssigned", assigned.length)}
             </button>
           </div>
-          ${this._view === "unassigned" ? unassignedContent : this._view === "assigned" ? assignedContent : ignoredContent}
+          ${this._view === "unassigned"
+            ? (isDeviceKind ? unassignedContent : unassignedEntityContent)
+            : this._view === "assigned"
+            ? (isDeviceKind ? assignedContent : assignedEntityContent)
+            : (isDeviceKind ? ignoredContent : ignoredEntityContent)}
         `}
     `;
 
@@ -1446,6 +1916,25 @@ class AreaManagerPanel extends HTMLElement {
       menuButton.narrow = this._narrow;
     }
 
+    // Kind switching (devices vs. device-less entities) - resets the same
+    // per-view state a tab switch does, since it's effectively switching to
+    // a whole different source list.
+    this.shadowRoot.querySelectorAll(".kind-btn").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        this._kind = e.target.dataset.kind;
+        this._view = "unassigned";
+        this._confirmDelete = null;
+        this._selected.clear();
+        this._pending = {};
+        this._filterText = "";
+        this._filterManufacturer = "";
+        this._filterDomain = "";
+        this._sortKey = null;
+        this._sortDir = "asc";
+        this._render();
+      });
+    });
+
     // Tab switching
     this.shadowRoot.querySelectorAll(".tab").forEach((btn) => {
       btn.addEventListener("click", (e) => {
@@ -1456,6 +1945,24 @@ class AreaManagerPanel extends HTMLElement {
         this._filterText = "";
         this._filterManufacturer = "";
         this._filterDomain = "";
+        this._sortKey = null;
+        this._sortDir = "asc";
+        this._render();
+      });
+    });
+
+    // Column-header sorting - click toggles asc/desc on the same column,
+    // switches to asc on a different one. Present on any view/kind that has
+    // sortable columns (querySelectorAll is a no-op elsewhere).
+    this.shadowRoot.querySelectorAll("th[data-sort]").forEach((th) => {
+      th.addEventListener("click", () => {
+        const key = th.dataset.sort;
+        if (this._sortKey === key) {
+          this._sortDir = this._sortDir === "asc" ? "desc" : "asc";
+        } else {
+          this._sortKey = key;
+          this._sortDir = "asc";
+        }
         this._render();
       });
     });
@@ -1479,7 +1986,7 @@ class AreaManagerPanel extends HTMLElement {
       });
 
       this.shadowRoot.querySelectorAll(".btn-assign[data-device]").forEach((btn) =>
-        btn.addEventListener("click", (e) => this._saveDevice(e.target.dataset.device))
+        btn.addEventListener("click", (e) => this._saveItem(e.target.dataset.device))
       );
 
       const saveAll = this.shadowRoot.getElementById("save-all");
@@ -1502,7 +2009,7 @@ class AreaManagerPanel extends HTMLElement {
     // Unassigned-only view listeners (ignore/delete)
     if (this._view === "unassigned") {
       this.shadowRoot.querySelectorAll(".btn-ignore[data-device]").forEach((btn) =>
-        btn.addEventListener("click", (e) => this._ignoreDevice(e.target.dataset.device))
+        btn.addEventListener("click", (e) => this._ignoreItem(e.target.dataset.device))
       );
 
       this.shadowRoot.querySelectorAll(".btn-delete").forEach((btn) =>
@@ -1550,19 +2057,24 @@ class AreaManagerPanel extends HTMLElement {
     // Ignored view listeners
     if (this._view === "ignored") {
       this.shadowRoot.querySelectorAll(".btn-unignore").forEach((btn) =>
-        btn.addEventListener("click", (e) => this._unignoreDevice(e.target.dataset.device))
+        btn.addEventListener("click", (e) => this._unignoreItem(e.target.dataset.device))
       );
     }
 
-    // Row click → device detail dialog (all views)
+    // Row click → detail dialog (all views), device or entity depending on kind
     const tbody = this.shadowRoot.querySelector("table tbody");
     if (tbody) {
       tbody.addEventListener("click", (e) => {
         if (e.target.closest("button, select, input")) return;
         const row = e.target.closest(".device-row[data-device-id]");
         if (!row) return;
-        const device = this._devices.find((d) => d.id === row.dataset.deviceId);
-        if (device) this._showDeviceDetail(device);
+        if (isDeviceKind) {
+          const device = this._devices.find((d) => d.id === row.dataset.deviceId);
+          if (device) this._showDeviceDetail(device);
+        } else {
+          const entity = this._deviceLessEntities().find((e) => e.entity_id === row.dataset.deviceId);
+          if (entity) this._showEntityDetail(entity);
+        }
       });
     }
   }

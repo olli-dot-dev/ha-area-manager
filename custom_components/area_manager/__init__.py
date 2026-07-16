@@ -44,6 +44,31 @@ async def _ws_set_ignored(hass: HomeAssistant, connection, msg) -> None:
     connection.send_result(msg["id"], "ok")
 
 
+@websocket_api.websocket_command({vol.Required("type"): "area_manager/get_ignored_entities"})
+@websocket_api.async_response
+async def _ws_get_ignored_entities(hass: HomeAssistant, connection, msg) -> None:
+    store: Store = hass.data[DOMAIN]["store"]
+    data = await store.async_load() or {}
+    connection.send_result(msg["id"], data.get("ignored_entities", []))
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "area_manager/set_ignored_entities",
+        vol.Required("entity_ids"): [str],
+    }
+)
+@websocket_api.async_response
+async def _ws_set_ignored_entities(hass: HomeAssistant, connection, msg) -> None:
+    # Same Store/file as device ignores, separate key - no migration needed,
+    # existing installs simply get an empty list until something is ignored.
+    store: Store = hass.data[DOMAIN]["store"]
+    data = await store.async_load() or {}
+    data["ignored_entities"] = msg["entity_ids"]
+    await store.async_save(data)
+    connection.send_result(msg["id"], "ok")
+
+
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "area_manager/remove_device",
@@ -125,6 +150,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     websocket_api.async_register_command(hass, _ws_get_ignored)
     websocket_api.async_register_command(hass, _ws_set_ignored)
+    websocket_api.async_register_command(hass, _ws_get_ignored_entities)
+    websocket_api.async_register_command(hass, _ws_set_ignored_entities)
     websocket_api.async_register_command(hass, _ws_remove_device)
     websocket_api.async_register_command(hass, _ws_get_setup_time)
 

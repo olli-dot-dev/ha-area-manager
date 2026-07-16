@@ -3,6 +3,16 @@
 All notable changes to Area Manager are documented here.
 Alle wesentlichen Änderungen an Area Manager werden hier dokumentiert.
 
+## [2.4.0] - 2026-07-16
+
+**English**
+- Added support for entities without a device — automations, scripts, scenes, and helpers (`input_boolean`, `counter`, `timer`, …) can now be assigned an area directly, the same way Home Assistant's own entity settings dialog allows for any entity with no device behind it. A new **Devices / Entities** toggle at the top switches the whole panel (all three tabs, filtering, bulk-selection) between the two — previously Area Manager only covered devices, leaving this whole category invisible. Entities support area assignment and ignore/restore; rename and delete remain device-only, since a device-less entity's configuration lives elsewhere and doesn't map to a meaningful "delete" here
+- Added column sorting — click "Name", "Integration", or "Area" to sort ascending, click again to reverse. Not offered for "Area" on the "Without area" tab, since every row there has no area by definition
+
+**Deutsch**
+- Unterstützung für Entitäten ohne Gerät hinzugefügt — Automationen, Skripte, Szenen und Helper (`input_boolean`, `counter`, `timer`, …) lassen sich jetzt direkt einem Bereich zuweisen, genau wie es Home Assistants eigener Entitäts-Einstellungsdialog für jede Entität ohne Gerät dahinter erlaubt. Ein neuer **Geräte / Entitäten**-Umschalter oben wechselt das gesamte Panel (alle drei Tabs, Filter, Mehrfachauswahl) zwischen beiden — bisher deckte Area Manager nur Geräte ab, diese ganze Kategorie war unsichtbar. Entitäten unterstützen Bereichszuweisung und Ignorieren/Wiederherstellen; Umbenennen und Löschen bleiben geräte-exklusiv, da die Konfiguration einer geräte-losen Entität anderswo liegt und ein "Löschen" hier nichts sinnvolles bedeuten würde
+- Spalten-Sortierung hinzugefügt — Klick auf "Name", "Integration" oder "Bereich" sortiert aufsteigend, erneuter Klick kehrt um. Im "Ohne Bereich"-Tab nicht für "Bereich" verfügbar, da dort per Definition jede Zeile keinen Bereich hat
+
 ## [2.3.1] - 2026-07-08
 
 **English**
