@@ -3,6 +3,16 @@
 All notable changes to Area Manager are documented here.
 Alle wesentlichen Änderungen an Area Manager werden hier dokumentiert.
 
+## [2.5.0] - 2026-08-02
+
+**English**
+- Added an area suggestion badge on the "Without area" tab (requested by **@iverlaek** on the launch video): if a device's or entity's name contains an existing area's name (e.g. "Living Room Hub" → "Living Room"), a clickable "→ Living Room?" badge appears next to its dropdown. Clicking it pre-fills the dropdown — it never assigns on its own, so a wrong guess is just one click away from being ignored
+- Added a **"+ New area…"** option to every area dropdown (row selects, the bulk-assignment bar, and both detail popups) to create a new area on the spot, optionally assigning it to a floor, instead of leaving Area Manager to create one in HA's own settings first. Requested by **Onkel Joerg** ([#2](https://github.com/olli-dot-dev/ha-area-manager/issues/2)). Fixed a bug found during testing where the freshly created area didn't appear in the dropdown until the page was refreshed — every visible dropdown is now updated immediately instead of relying on a full re-render
+
+**Deutsch**
+- Vorschlags-Badge im "Ohne Bereich"-Tab hinzugefügt (Vorschlag von **@iverlaek** im Launch-Video): Enthält der Name eines Geräts oder einer Entität den Namen eines bestehenden Bereichs (z. B. "Wohnzimmer Hub" → "Wohnzimmer"), erscheint neben dem Dropdown ein klickbares "→ Wohnzimmer?"-Badge. Ein Klick befüllt nur das Dropdown vor — es weist nie von selbst zu, ein falscher Vorschlag ist also nur einen Klick von "ignorieren" entfernt
+- Option **"+ Neuer Bereich…"** zu jedem Bereichs-Dropdown hinzugefügt (Zeilen, Bulk-Zuweisungsleiste, beide Detail-Popups), um direkt einen neuen Bereich anzulegen, optional mit Etagen-Zuordnung, statt dafür erst in HAs eigene Einstellungen wechseln zu müssen. Vorschlag von **Onkel Joerg** ([#2](https://github.com/olli-dot-dev/ha-area-manager/issues/2)). Einen beim Testen gefundenen Fehler behoben, bei dem der frisch erstellte Bereich erst nach einem Seiten-Refresh im Dropdown auftauchte — jedes sichtbare Dropdown wird jetzt sofort aktualisiert, statt sich auf einen vollständigen Neuaufbau zu verlassen
+
 ## [2.4.0] - 2026-07-16
 
 **English**

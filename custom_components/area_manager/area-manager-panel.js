@@ -30,6 +30,16 @@ const TRANSLATIONS = {
     confirmNo: "Abbrechen",
     chooseArea: "— Bereich wählen —",
     unassignOption: "— Kein Bereich —",
+    suggestBadge: (areaName) => `→ ${areaName}?`,
+    suggestTitle: (areaName) => `Vorschlag: Gerätename passt zu „${areaName}“ - klicken zum Übernehmen`,
+    createAreaOption: "+ Neuer Bereich…",
+    createAreaTitle: "Neuen Bereich erstellen",
+    createAreaPlaceholder: "Bereichsname",
+    createAreaFloorPlaceholder: "— Keine Etage —",
+    createAreaConfirm: "Erstellen",
+    createAreaEmptyError: "Bitte einen Namen eingeben.",
+    createAreaError: (msg) => `Fehler beim Erstellen des Bereichs: ${msg}`,
+    cancel: "Abbrechen",
     renameTitle: "Umbenennen",
     selectAll: "Alle auswählen",
     bulkSelectedCount: (n) => `${n} ausgewählt`,
@@ -101,6 +111,16 @@ const TRANSLATIONS = {
     confirmNo: "Cancel",
     chooseArea: "— Choose area —",
     unassignOption: "— No area —",
+    suggestBadge: (areaName) => `→ ${areaName}?`,
+    suggestTitle: (areaName) => `Suggestion: device name matches "${areaName}" - click to accept`,
+    createAreaOption: "+ New area…",
+    createAreaTitle: "Create new area",
+    createAreaPlaceholder: "Area name",
+    createAreaFloorPlaceholder: "— No floor —",
+    createAreaConfirm: "Create",
+    createAreaEmptyError: "Please enter a name.",
+    createAreaError: (msg) => `Error creating area: ${msg}`,
+    cancel: "Cancel",
     renameTitle: "Rename",
     selectAll: "Select all",
     bulkSelectedCount: (n) => `${n} selected`,
@@ -149,6 +169,7 @@ class AreaManagerPanel extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this._devices = [];
     this._areas = [];
+    this._floors = [];
     this._entities = [];
     this._ignoredIds = new Set();
     this._ignoredEntityIds = new Set();
@@ -198,10 +219,11 @@ class AreaManagerPanel extends HTMLElement {
     this._error = null;
     this._render();
     try {
-      const [devices, areas, entities, ignoredIds, ignoredEntityIds, setupTime] = await Promise.all([
+      const [devices, areas, entities, floors, ignoredIds, ignoredEntityIds, setupTime] = await Promise.all([
         this._hass.callWS({ type: "config/device_registry/list" }),
         this._hass.callWS({ type: "config/area_registry/list" }),
         this._hass.callWS({ type: "config/entity_registry/list" }),
+        this._hass.callWS({ type: "config/floor_registry/list" }),
         this._hass.callWS({ type: "area_manager/get_ignored" }),
         this._hass.callWS({ type: "area_manager/get_ignored_entities" }),
         this._hass.callWS({ type: "area_manager/get_setup_time" }),
@@ -209,6 +231,13 @@ class AreaManagerPanel extends HTMLElement {
       this._devices = devices;
       this._areas = areas.slice().sort((a, b) => a.name.localeCompare(b.name));
       this._entities = entities;
+      // Floors have their own explicit order (top-to-bottom, "level")
+      // rather than an alphabetical one like areas - HA's own floor
+      // registry UI already sorts by `level`, matching that convention
+      // here for the create-area dialog's floor picker (see
+      // _promptCreateArea) rather than introducing a second, different
+      // ordering.
+      this._floors = floors.slice().sort((a, b) => (a.level ?? 0) - (b.level ?? 0));
       this._ignoredIds = new Set(ignoredIds);
       this._ignoredEntityIds = new Set(ignoredEntityIds);
       this._setupTime = setupTime;
@@ -254,6 +283,28 @@ class AreaManagerPanel extends HTMLElement {
     return this._kind === "device"
       ? (item.name_by_user || item.name || item.id)
       : (item.name || item.original_name || item.entity_id);
+  }
+
+  // Feature 2.1 from the v2 spec (@iverlaek): suggest an area when a
+  // device's name contains an existing area's name - e.g. "Küche Hub"
+  // suggests "Küche". Case-insensitive substring match, not a real fuzzy/
+  // edit-distance algorithm - simple and predictable beats clever here,
+  // since a wrong suggestion is only ever one click away from being
+  // ignored (never auto-assigned, see _renderUnassignedRows). If several
+  // areas match, the longest matching name wins (most specific match -
+  // e.g. "Wohnzimmer" over a hypothetical "Zimmer" for a device named
+  // "Wohnzimmer Lampe").
+  _suggestedArea(label) {
+    if (!label) return null;
+    const lower = label.toLowerCase();
+    let best = null;
+    for (const area of this._areas) {
+      if (!area.name) continue;
+      if (lower.includes(area.name.toLowerCase()) && (!best || area.name.length > best.name.length)) {
+        best = area;
+      }
+    }
+    return best;
   }
 
   _sortValue(item, key) {
@@ -334,8 +385,166 @@ class AreaManagerPanel extends HTMLElement {
   // chosen yet" for the unassigned tab's placeholder option.
   static UNASSIGN_SENTINEL = "__none__";
 
+  // "+ Neuer Bereich…" option (v2 spec item 2.2). There's no single
+  // constructor-level delegated listener across the whole shadow root
+  // (area-selects live in four separate row-table renderers, the
+  // bulk-assign bar, and two detail dialogs, each already wiring its own
+  // "change" handler at a different point in time) - instead, every one
+  // of those handlers starts with an `_isCreateAreaRequest(e.target)`
+  // guard (see below) that intercepts this sentinel before any
+  // per-context logic ever treats it as a real area_id.
+  static CREATE_SENTINEL = "__create__";
+
   _resolveAreaId(rawValue) {
     return rawValue === AreaManagerPanel.UNASSIGN_SENTINEL ? null : rawValue;
+  }
+
+  // Shared <option> list builder for every area-assignment dropdown (row
+  // selects in all four unassigned/assigned device/entity tables, the
+  // bulk-assign bar, and both detail dialogs) - replaces what used to be
+  // 7 separate hand-duplicated snippets. Always ends with the "+ Neuer
+  // Bereich…" create-sentinel option (see CREATE_SENTINEL) so every one
+  // of those contexts gets it automatically instead of needing it added
+  // by hand at each call site.
+  _areaOptionsHtml({ currentAreaId = null, includePlaceholder = false, includeUnassign = false } = {}) {
+    const placeholder = includePlaceholder
+      ? `<option value="">${this._t("chooseArea")}</option>`
+      : "";
+    const unassign = includeUnassign
+      ? `<option value="${AreaManagerPanel.UNASSIGN_SENTINEL}" ${currentAreaId === AreaManagerPanel.UNASSIGN_SENTINEL ? "selected" : ""}>${this._t("unassignOption")}</option>`
+      : "";
+    const areaOptions = this._areas
+      .map((a) => `<option value="${a.area_id}" ${a.area_id === currentAreaId ? "selected" : ""}>${a.name}</option>`)
+      .join("");
+    const create = `<option value="${AreaManagerPanel.CREATE_SENTINEL}">${this._t("createAreaOption")}</option>`;
+    return `${placeholder}${unassign}${areaOptions}${create}`;
+  }
+
+  // Call at the top of every area-select "change" handler, before it
+  // does anything else with e.target.value. Returns true (and takes
+  // over) if the sentinel was picked; false for a normal selection, so
+  // the caller's own logic continues untouched. Immediately resets the
+  // select back to whatever it showed before (data-current-area, or the
+  // first/placeholder option if that attribute isn't set - the bulk-
+  // assign bar has no single "current" area to fall back to) rather
+  // than leaving it stuck on the sentinel value while the dialog below
+  // is open, or after the user cancels it.
+  _isCreateAreaRequest(selectElement) {
+    if (selectElement.value !== AreaManagerPanel.CREATE_SENTINEL) return false;
+    selectElement.value = selectElement.dataset.currentArea ?? "";
+    this._promptCreateArea(selectElement);
+    return true;
+  }
+
+  // Small standalone dialog for the new area's name - deliberately its
+  // own <dialog> (not reusing the #area-mgr-dlg id the two detail
+  // dialogs use) since "+ Neuer Bereich…" is reachable *from inside*
+  // either of those, so this one needs to stack on top rather than
+  // replace them (see the shared `.area-mgr-stacked-dlg` class in the
+  // stylesheet for the visual styling it borrows from #area-mgr-dlg).
+  // On success, the new area is spliced into `_areas` (kept sorted,
+  // matching the initial load in `set hass`), a matching <option> is
+  // inserted directly into every currently-rendered area-select (not
+  // just the triggering one - see the comment inside `confirm` below
+  // for why), and the triggering select is set to the new area_id with
+  // a synthetic "change" redispatched - every existing per-context
+  // handler (enable Assign, update the save-all count, enable the
+  // bulk-assign button, ...) then picks it up exactly like a normal
+  // selection, same trick the suggestion badge (feature 2.1) already
+  // uses.
+  _promptCreateArea(selectElement) {
+    const existing = this.shadowRoot.getElementById("area-mgr-create-dlg");
+    if (existing) existing.remove();
+
+    const floorOptions = this._floors
+      .map((f) => `<option value="${f.floor_id}">${f.name}</option>`)
+      .join("");
+
+    const dlg = document.createElement("dialog");
+    dlg.id = "area-mgr-create-dlg";
+    dlg.className = "area-mgr-stacked-dlg";
+    dlg.innerHTML = `
+      <div class="dlg-header">
+        <h2 class="dlg-title">${this._t("createAreaTitle")}</h2>
+        <button class="dlg-close" id="create-area-close" title="${this._t("dlgClose")}">✕</button>
+      </div>
+      <div class="dlg-body">
+        <input type="text" class="create-area-input" id="create-area-input" placeholder="${this._t("createAreaPlaceholder")}">
+        <select class="create-area-input" id="create-area-floor">
+          <option value="">${this._t("createAreaFloorPlaceholder")}</option>
+          ${floorOptions}
+        </select>
+        <p class="dlg-rename-error" id="create-area-error" style="display:none"></p>
+        <div class="dlg-actions">
+          <button class="btn-assign" id="create-area-confirm">${this._t("createAreaConfirm")}</button>
+          <button class="btn-confirm-no" id="create-area-cancel">${this._t("cancel")}</button>
+        </div>
+      </div>`;
+    this.shadowRoot.appendChild(dlg);
+    dlg.showModal();
+
+    const input = dlg.querySelector("#create-area-input");
+    const floorSelect = dlg.querySelector("#create-area-floor");
+    const errorEl = dlg.querySelector("#create-area-error");
+    input.focus();
+
+    const close = () => dlg.close();
+    dlg.addEventListener("close", () => dlg.remove());
+    dlg.querySelector("#create-area-close").addEventListener("click", close);
+    dlg.querySelector("#create-area-cancel").addEventListener("click", close);
+    dlg.addEventListener("click", (e) => { if (e.target === dlg) close(); });
+
+    const confirm = async () => {
+      const name = input.value.trim();
+      if (!name) {
+        errorEl.textContent = this._t("createAreaEmptyError");
+        errorEl.style.display = "";
+        input.focus();
+        return;
+      }
+      try {
+        const area = await this._hass.callWS({
+          type: "config/area_registry/create",
+          name,
+          ...(floorSelect.value ? { floor_id: floorSelect.value } : {}),
+        });
+        this._areas.push(area);
+        this._areas.sort((a, b) => a.name.localeCompare(b.name));
+        dlg.close();
+
+        // Every already-rendered <select>'s own <option> list was built
+        // from the old _areas before this one existed - setting .value
+        // to an area_id with no matching <option> silently no-ops in
+        // every browser, leaving the dropdown looking unchanged until
+        // the next full _render() (e.g. a page reload). That's exactly
+        // what happened when this was first tested (2026-08-02): the
+        // new area only showed up after a manual refresh. Fixed by
+        // inserting the new <option> into every currently-visible
+        // area-select directly - cheap, and unlike calling _render()
+        // here, safe even when one of them lives inside an open
+        // device/entity detail dialog (see the "never _render() while
+        // a dialog is open" rule in _showDeviceDetail).
+        this.shadowRoot.querySelectorAll(".area-select").forEach((sel) => {
+          const option = document.createElement("option");
+          option.value = area.area_id;
+          option.textContent = area.name;
+          const createOption = sel.querySelector(`option[value="${AreaManagerPanel.CREATE_SENTINEL}"]`);
+          if (createOption) sel.insertBefore(option, createOption);
+          else sel.appendChild(option);
+        });
+
+        selectElement.value = area.area_id;
+        selectElement.dispatchEvent(new Event("change", { bubbles: true }));
+      } catch (e) {
+        errorEl.textContent = this._t("createAreaError", e.message);
+        errorEl.style.display = "";
+      }
+    };
+    dlg.querySelector("#create-area-confirm").addEventListener("click", confirm);
+    input.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") confirm();
+      if (ev.key === "Escape") close();
+    });
   }
 
   // Registry timestamps may arrive as Unix seconds (number) or an ISO string
@@ -521,12 +730,11 @@ class AreaManagerPanel extends HTMLElement {
       ? lastSeenValues.reduce((latest, v) => (new Date(v) > new Date(latest) ? v : latest))
       : null;
 
-    const areaOptionsHtml = this._areas
-      .map((a) => `<option value="${a.area_id}" ${a.area_id === device.area_id ? "selected" : ""}>${a.name}</option>`)
-      .join("");
-    const areaSelectOptions = device.area_id
-      ? `<option value="${AreaManagerPanel.UNASSIGN_SENTINEL}">${this._t("unassignOption")}</option>${areaOptionsHtml}`
-      : `<option value="">${this._t("chooseArea")}</option>${areaOptionsHtml}`;
+    const areaSelectOptions = this._areaOptionsHtml({
+      currentAreaId: device.area_id,
+      includePlaceholder: !device.area_id,
+      includeUnassign: !!device.area_id,
+    });
 
     const dlg = document.createElement("dialog");
     dlg.id = "area-mgr-dlg";
@@ -641,6 +849,7 @@ class AreaManagerPanel extends HTMLElement {
     const areaSelect = dlg.querySelector("#dlg-area-select");
     const assignBtn = dlg.querySelector("#dlg-assign");
     areaSelect.addEventListener("change", (e) => {
+      if (this._isCreateAreaRequest(e.target)) return;
       assignBtn.disabled = e.target.value === areaSelect.dataset.currentArea;
     });
     assignBtn.addEventListener("click", () => {
@@ -738,12 +947,11 @@ class AreaManagerPanel extends HTMLElement {
     const lastSeen = stateObj?.last_reported || stateObj?.last_updated;
     const lastSeenNote = this._lastSeenNote(lastSeen);
 
-    const areaOptionsHtml = this._areas
-      .map((a) => `<option value="${a.area_id}" ${a.area_id === entity.area_id ? "selected" : ""}>${a.name}</option>`)
-      .join("");
-    const areaSelectOptions = entity.area_id
-      ? `<option value="${AreaManagerPanel.UNASSIGN_SENTINEL}">${this._t("unassignOption")}</option>${areaOptionsHtml}`
-      : `<option value="">${this._t("chooseArea")}</option>${areaOptionsHtml}`;
+    const areaSelectOptions = this._areaOptionsHtml({
+      currentAreaId: entity.area_id,
+      includePlaceholder: !entity.area_id,
+      includeUnassign: !!entity.area_id,
+    });
 
     const dlg = document.createElement("dialog");
     dlg.id = "area-mgr-dlg";
@@ -781,6 +989,7 @@ class AreaManagerPanel extends HTMLElement {
     const areaSelect = dlg.querySelector("#dlg-area-select");
     const assignBtn = dlg.querySelector("#dlg-assign");
     areaSelect.addEventListener("change", (e) => {
+      if (this._isCreateAreaRequest(e.target)) return;
       assignBtn.disabled = e.target.value === areaSelect.dataset.currentArea;
     });
     assignBtn.addEventListener("click", () => {
@@ -877,6 +1086,7 @@ class AreaManagerPanel extends HTMLElement {
     const bulkAssign = this.shadowRoot.getElementById("bulk-assign");
     if (bulkAreaSelect && bulkAssign) {
       bulkAreaSelect.addEventListener("change", (e) => {
+        if (this._isCreateAreaRequest(e.target)) return;
         bulkAssign.disabled = !e.target.value;
       });
       bulkAssign.addEventListener("click", () => this._bulkAssign(bulkAreaSelect.value));
@@ -952,9 +1162,7 @@ class AreaManagerPanel extends HTMLElement {
   }
 
   _renderUnassignedRows(unassigned) {
-    const areaOptions = this._areas
-      .map((a) => `<option value="${a.area_id}">${a.name}</option>`)
-      .join("");
+    const areaOptions = this._areaOptionsHtml({ includePlaceholder: true });
 
     return unassigned.map((d) => {
       const label = d.name_by_user || d.name || d.id;
@@ -963,6 +1171,7 @@ class AreaManagerPanel extends HTMLElement {
       const selected = this._pending[d.id] || "";
       const isConfirming = this._confirmDelete === d.id;
       const entitiesText = this._entitiesText(d);
+      const suggestion = selected ? null : this._suggestedArea(label);
 
       const actionCell = isConfirming
         ? `<td class="cell-area cell-confirm" colspan="2">
@@ -971,8 +1180,8 @@ class AreaManagerPanel extends HTMLElement {
             <button class="btn-confirm-no" data-device="${d.id}">${this._t("confirmNo")}</button>
           </td>`
         : `<td class="cell-area">
+            ${suggestion ? `<button class="suggest-badge" data-device="${d.id}" data-area="${suggestion.area_id}" title="${this._t("suggestTitle", suggestion.name)}">${this._t("suggestBadge", suggestion.name)}</button>` : ""}
             <select class="area-select" data-device="${d.id}" data-current-area="">
-              <option value="">${this._t("chooseArea")}</option>
               ${areaOptions}
             </select>
           </td>
@@ -1019,9 +1228,10 @@ class AreaManagerPanel extends HTMLElement {
       const selectedValue = pendingValue !== undefined ? pendingValue : currentArea;
       const isDirty = pendingValue !== undefined && pendingValue !== currentArea;
 
-      const areaOptions = this._areas
-        .map((a) => `<option value="${a.area_id}" ${a.area_id === selectedValue ? "selected" : ""}>${a.name}</option>`)
-        .join("");
+      const areaSelectOptions = this._areaOptionsHtml({
+        currentAreaId: selectedValue,
+        includeUnassign: true,
+      });
 
       return `
         <tr class="device-row"
@@ -1044,8 +1254,7 @@ class AreaManagerPanel extends HTMLElement {
           ${this._renderEntityCell(d)}
           <td class="cell-area">
             <select class="area-select" data-device="${d.id}" data-current-area="${currentArea}">
-              <option value="${AreaManagerPanel.UNASSIGN_SENTINEL}" ${selectedValue === AreaManagerPanel.UNASSIGN_SENTINEL ? "selected" : ""}>${this._t("unassignOption")}</option>
-              ${areaOptions}
+              ${areaSelectOptions}
             </select>
           </td>
           <td class="cell-actions">
@@ -1093,9 +1302,7 @@ class AreaManagerPanel extends HTMLElement {
   // select/area-assign wiring below - which is already parameterized by
   // _kind - doesn't need its own separate set of selectors.
   _renderUnassignedEntityRows(unassigned) {
-    const areaOptions = this._areas
-      .map((a) => `<option value="${a.area_id}">${a.name}</option>`)
-      .join("");
+    const areaSelectOptions = this._areaOptionsHtml({ includePlaceholder: true });
 
     return unassigned.map((e) => {
       const label = e.name || e.original_name || e.entity_id;
@@ -1120,8 +1327,7 @@ class AreaManagerPanel extends HTMLElement {
           </td>
           <td class="cell-area">
             <select class="area-select" data-device="${e.entity_id}" data-current-area="">
-              <option value="">${this._t("chooseArea")}</option>
-              ${areaOptions}
+              ${areaSelectOptions}
             </select>
           </td>
           <td class="cell-actions">
@@ -1143,9 +1349,10 @@ class AreaManagerPanel extends HTMLElement {
       const selectedValue = pendingValue !== undefined ? pendingValue : currentArea;
       const isDirty = pendingValue !== undefined && pendingValue !== currentArea;
 
-      const areaOptions = this._areas
-        .map((a) => `<option value="${a.area_id}" ${a.area_id === selectedValue ? "selected" : ""}>${a.name}</option>`)
-        .join("");
+      const areaSelectOptions = this._areaOptionsHtml({
+        currentAreaId: selectedValue,
+        includeUnassign: true,
+      });
 
       return `
         <tr class="device-row"
@@ -1165,8 +1372,7 @@ class AreaManagerPanel extends HTMLElement {
           </td>
           <td class="cell-area">
             <select class="area-select" data-device="${e.entity_id}" data-current-area="${currentArea}">
-              <option value="${AreaManagerPanel.UNASSIGN_SENTINEL}" ${selectedValue === AreaManagerPanel.UNASSIGN_SENTINEL ? "selected" : ""}>${this._t("unassignOption")}</option>
-              ${areaOptions}
+              ${areaSelectOptions}
             </select>
           </td>
           <td class="cell-actions">
@@ -1205,16 +1411,15 @@ class AreaManagerPanel extends HTMLElement {
   }
 
   _renderBulkBar() {
-    const areaOptions = this._areas
-      .map((a) => `<option value="${a.area_id}">${a.name}</option>`)
-      .join("");
+    const areaSelectOptions = this._areaOptionsHtml({
+      includePlaceholder: true,
+      includeUnassign: true,
+    });
     return `
       <div class="bulk-bar" id="bulk-bar" style="${this._selected.size === 0 ? "display:none" : ""}">
         <span class="bulk-count" id="bulk-count" title="${this._t("bulkSelectedCount", this._selected.size)}">${this._selected.size}</span>
         <select class="area-select" id="bulk-area-select">
-          <option value="">${this._t("chooseArea")}</option>
-          <option value="${AreaManagerPanel.UNASSIGN_SENTINEL}">${this._t("unassignOption")}</option>
-          ${areaOptions}
+          ${areaSelectOptions}
         </select>
         <button class="btn-assign" id="bulk-assign" disabled>${this._t("assign")}</button>
         ${this._view === "unassigned" ? `<button class="btn-ignore" id="bulk-ignore">${this._t("ignore")}</button>` : ""}
@@ -1492,6 +1697,22 @@ class AreaManagerPanel extends HTMLElement {
           color: var(--primary-text-color);
           font-size: 0.95em;
         }
+        .suggest-badge {
+          display: block;
+          width: 100%;
+          box-sizing: border-box;
+          margin: 0 0 4px;
+          padding: 3px 8px;
+          border: 1px dashed var(--primary-color, #03a9f4);
+          border-radius: 10px;
+          background: rgba(3,169,244,0.08);
+          color: var(--primary-color, #03a9f4);
+          font-size: 0.82em;
+          font-weight: 500;
+          cursor: pointer;
+          text-align: left;
+        }
+        .suggest-badge:hover { background: rgba(3,169,244,0.16); }
         button { padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85em; font-weight: 500; transition: opacity 0.15s; }
         button:disabled { opacity: 0.4; cursor: default; }
         .btn-assign { background: var(--primary-color, #03a9f4); color: var(--text-primary-color, #fff); margin-right: 4px; }
@@ -1506,8 +1727,10 @@ class AreaManagerPanel extends HTMLElement {
         .btn-toggle-entities { background: transparent; border: 1px solid var(--divider-color, #ccc); color: var(--primary-text-color); padding: 8px 16px; }
         .loading { text-align: center; padding: 48px 0; color: var(--secondary-text-color, #888); }
         .cell-name, .cell-integration { cursor: pointer; }
-        /* Device detail dialog */
-        #area-mgr-dlg {
+        /* Device/entity detail dialogs, plus the smaller "create area"
+           dialog stacked on top of them (see _promptCreateArea) - shares
+           every rule below except max-width, overridden just after. */
+        #area-mgr-dlg, .area-mgr-stacked-dlg {
           border: none;
           border-radius: 12px;
           padding: 0;
@@ -1522,7 +1745,19 @@ class AreaManagerPanel extends HTMLElement {
           color: var(--primary-text-color);
           font-family: var(--paper-font-body1_-_font-family, Roboto, sans-serif);
         }
-        #area-mgr-dlg::backdrop { background: rgba(0,0,0,0.48); }
+        .area-mgr-stacked-dlg { max-width: 380px; }
+        #area-mgr-dlg::backdrop, .area-mgr-stacked-dlg::backdrop { background: rgba(0,0,0,0.48); }
+        .create-area-input {
+          width: 100%;
+          box-sizing: border-box;
+          padding: 8px 10px;
+          margin: 0 0 8px;
+          border: 1px solid var(--divider-color, #ccc);
+          border-radius: 6px;
+          font-size: 0.95em;
+          background: var(--card-background-color, #fff);
+          color: var(--primary-text-color);
+        }
         .dlg-header {
           display: flex;
           align-items: center;
@@ -1972,6 +2207,7 @@ class AreaManagerPanel extends HTMLElement {
       this.shadowRoot.querySelectorAll(".area-select[data-device]").forEach((sel) => {
         if (this._pending[sel.dataset.device] !== undefined) sel.value = this._pending[sel.dataset.device];
         sel.addEventListener("change", (e) => {
+          if (this._isCreateAreaRequest(e.target)) return;
           const id = e.target.dataset.device;
           this._pending[id] = e.target.value;
           const btn = this.shadowRoot.querySelector(`.btn-assign[data-device="${id}"]`);
@@ -1982,6 +2218,23 @@ class AreaManagerPanel extends HTMLElement {
             saveAll.disabled = count === 0;
             saveAll.textContent = this._t("saveAll", count);
           }
+        });
+      });
+
+      // Suggestion badge (feature 2.1) - only ever pre-fills the dropdown
+      // and re-dispatches "change" so the listener above does the actual
+      // work (enable Assign, update the save-all count); never assigns by
+      // itself. Removed from the DOM on click rather than waiting for the
+      // next _render() - _pending is now set, so a later render would hide
+      // it anyway (see the `selected ? null : ...` guard in
+      // _renderUnassignedRows), but the click already happened by then.
+      this.shadowRoot.querySelectorAll(".suggest-badge[data-device]").forEach((badge) => {
+        badge.addEventListener("click", () => {
+          const sel = this.shadowRoot.querySelector(`.area-select[data-device="${badge.dataset.device}"]`);
+          if (!sel) return;
+          sel.value = badge.dataset.area;
+          sel.dispatchEvent(new Event("change", { bubbles: true }));
+          badge.remove();
         });
       });
 

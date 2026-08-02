@@ -21,6 +21,8 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes (English/Deutsch).
 - **Devices and entities** — a switcher at the top toggles the whole panel between devices and *device-less entities* (see below) — same tabs, same bulk mechanics, same detail popup pattern, applied to whichever you're currently looking at
 - **Overview** — lists everything (devices, or entities) that has no area assigned yet
 - **Quick assignment** — pick an area from a dropdown and assign per row or save all at once
+- **Area suggestions** — if a device's or entity's name matches an existing area (e.g. "Living Room Hub"), a clickable badge suggests it; never assigns on its own, just pre-fills the dropdown
+- **Create areas inline** — a "+ New area…" option in every area dropdown creates a new area on the spot, optionally with a floor, without leaving Area Manager first
 - **Bulk assignment** — select multiple rows via checkbox and assign or ignore them all at once; selection is preserved while filtering
 - **Assigned tab** — review devices/entities that already have an area and correct misassignments, including unassigning back to "Without area"
 - **Sortable columns** — click a column header (name, integration, area) to sort ascending/descending; click again to reverse
@@ -90,6 +92,8 @@ The steps below are written for the **Devices** view; switching to **Entities** 
 | 3 | Use the filter bar to narrow down by name, manufacturer, or integration |
 | 4 | Select an area in the dropdown for one or more devices |
 | 5 | Click **Assign** per row, or **Save all (n)** for all pending changes at once |
+
+If a device's or entity's name matches an existing area, a suggestion badge (e.g. "→ Living Room?") appears next to its dropdown — click it to pre-fill the dropdown with that area, without assigning anything until you actually click **Assign**. Need an area that doesn't exist yet? Pick **"+ New area…"** at the bottom of any dropdown to create one on the spot (optionally assigned to a floor) — it's selected automatically once created.
 
 ### Bulk assignment
 
