@@ -1,168 +1,3 @@
-const TRANSLATIONS = {
-  de: {
-    title: "Area Manager",
-    subtitle: "Geräte und Entitäten ohne Bereichszuweisung erkennen und schnell einem Bereich zuordnen.",
-    badge: (n) => `${n} ohne Bereich`,
-    kindDevices: (n) => `Geräte (${n})`,
-    kindEntities: (n) => `Entitäten (${n})`,
-    colEntity: "Entität",
-    searchPlaceholderEntities: "Entität oder ID suchen…",
-    allDoneEntities: "Alle Entitäten haben bereits einen Bereich. 🎉",
-    ignoredEmptyEntities: "Keine ignorierten Entitäten.",
-    assignedEmptyEntities: "Noch keine Entitäten mit Bereich.",
-    dlgEntityId: "Entity-ID",
-    tabUnassigned: (n) => `Ohne Bereich (${n})`,
-    tabIgnored: (n) => `Ignoriert (${n})`,
-    tabAssigned: (n) => `Zugewiesen (${n})`,
-    searchPlaceholder: "Gerät, Hersteller oder Modell suchen…",
-    allManufacturers: "Alle Hersteller",
-    allIntegrations: "Alle Integrationen",
-    clearFilter: "Filter zurücksetzen",
-    saveAll: (n) => `Alle speichern (${n})`,
-    saving: "Wird gespeichert…",
-    reload: "Neu laden",
-    assign: "Zuweisen",
-    ignore: "Ignorieren",
-    unignore: "Wieder anzeigen",
-    delete: "Löschen",
-    confirmDelete: "Gerät wirklich löschen?",
-    confirmYes: "Ja, löschen",
-    confirmNo: "Abbrechen",
-    chooseArea: "— Bereich wählen —",
-    unassignOption: "— Kein Bereich —",
-    suggestBadge: (areaName) => `→ ${areaName}?`,
-    suggestTitle: (areaName) => `Vorschlag: Gerätename passt zu „${areaName}“ - klicken zum Übernehmen`,
-    createAreaOption: "+ Neuer Bereich…",
-    createAreaTitle: "Neuen Bereich erstellen",
-    createAreaPlaceholder: "Bereichsname",
-    createAreaFloorPlaceholder: "— Keine Etage —",
-    createAreaConfirm: "Erstellen",
-    createAreaEmptyError: "Bitte einen Namen eingeben.",
-    createAreaError: (msg) => `Fehler beim Erstellen des Bereichs: ${msg}`,
-    cancel: "Abbrechen",
-    renameTitle: "Umbenennen",
-    selectAll: "Alle auswählen",
-    bulkSelectedCount: (n) => `${n} ausgewählt`,
-    bulkClear: "Auswahl aufheben",
-    colDevice: "Gerät",
-    colIntegration: "Integration",
-    colArea: "Bereich zuweisen",
-    colCurrentArea: "Aktueller Bereich",
-    colActions: "Aktionen",
-    noArea: "Kein Bereich",
-    allDone: "Alle Geräte haben bereits einen Bereich. 🎉",
-    ignoredEmpty: "Keine ignorierten Geräte.",
-    assignedEmpty: "Noch keine Geräte mit Bereich.",
-    noFilterMatch: "Keine Geräte entsprechen dem Filter.",
-    loading: "Lade Daten…",
-    errorLoad: (msg) => `Fehler beim Laden der Daten: ${msg}`,
-    errorSave: (msg) => `Fehler beim Speichern: ${msg}`,
-    errorDelete: (msg) => `Fehler beim Löschen: ${msg}`,
-    colEntities: "Entitäten",
-    expandEntities: "Entitäten einblenden",
-    collapseEntities: "Entitäten ausblenden",
-    entityCount: (n) => `${n} Entität${n !== 1 ? "en" : ""}`,
-    dlgManufacturer: "Hersteller",
-    dlgModel: "Modell",
-    dlgIntegration: "Integration",
-    dlgArea: "Bereich",
-    dlgCreatedAt: "Hinzugefügt am",
-    dlgEntities: "Entitäten",
-    dlgNoEntities: "Keine Entitäten vorhanden.",
-    dlgShowDetails: "Details anzeigen",
-    dlgHideDetails: "Details ausblenden",
-    dlgState: "Status",
-    dlgLastSeen: "Zuletzt gesehen",
-    dlgAttributes: "Attribute",
-    dlgNoState: "Kein Status verfügbar",
-    dlgLastSeenNote: (restartTime) => `⚠️ nahe am letzten HA-Neustart (${restartTime}) — der tatsächliche Zeitpunkt könnte länger her sein`,
-    dlgGoToDevice: "Zur Geräteseite",
-    dlgClose: "Schließen",
-    dlgLoading: "Lade Details…",
-  },
-  en: {
-    title: "Area Manager",
-    subtitle: "Find devices and entities without an area assignment and quickly assign them to one.",
-    badge: (n) => `${n} without area`,
-    kindDevices: (n) => `Devices (${n})`,
-    kindEntities: (n) => `Entities (${n})`,
-    colEntity: "Entity",
-    searchPlaceholderEntities: "Search by entity or ID…",
-    allDoneEntities: "All entities already have an area. 🎉",
-    ignoredEmptyEntities: "No ignored entities.",
-    assignedEmptyEntities: "No entities with an area yet.",
-    dlgEntityId: "Entity ID",
-    tabUnassigned: (n) => `Without area (${n})`,
-    tabIgnored: (n) => `Ignored (${n})`,
-    tabAssigned: (n) => `Assigned (${n})`,
-    searchPlaceholder: "Search by device, manufacturer or model…",
-    allManufacturers: "All manufacturers",
-    allIntegrations: "All integrations",
-    clearFilter: "Reset filters",
-    saveAll: (n) => `Save all (${n})`,
-    saving: "Saving…",
-    reload: "Reload",
-    assign: "Assign",
-    ignore: "Ignore",
-    unignore: "Show again",
-    delete: "Delete",
-    confirmDelete: "Really delete this device?",
-    confirmYes: "Yes, delete",
-    confirmNo: "Cancel",
-    chooseArea: "— Choose area —",
-    unassignOption: "— No area —",
-    suggestBadge: (areaName) => `→ ${areaName}?`,
-    suggestTitle: (areaName) => `Suggestion: device name matches "${areaName}" - click to accept`,
-    createAreaOption: "+ New area…",
-    createAreaTitle: "Create new area",
-    createAreaPlaceholder: "Area name",
-    createAreaFloorPlaceholder: "— No floor —",
-    createAreaConfirm: "Create",
-    createAreaEmptyError: "Please enter a name.",
-    createAreaError: (msg) => `Error creating area: ${msg}`,
-    cancel: "Cancel",
-    renameTitle: "Rename",
-    selectAll: "Select all",
-    bulkSelectedCount: (n) => `${n} selected`,
-    bulkClear: "Clear selection",
-    colDevice: "Device",
-    colIntegration: "Integration",
-    colArea: "Assign area",
-    colCurrentArea: "Current area",
-    colActions: "Actions",
-    noArea: "No area",
-    allDone: "All devices already have an area. 🎉",
-    ignoredEmpty: "No ignored devices.",
-    assignedEmpty: "No devices with an area yet.",
-    noFilterMatch: "No devices match the filter.",
-    loading: "Loading…",
-    errorLoad: (msg) => `Error loading data: ${msg}`,
-    errorSave: (msg) => `Error saving: ${msg}`,
-    errorDelete: (msg) => `Error deleting device: ${msg}`,
-    colEntities: "Entities",
-    expandEntities: "Show entities",
-    collapseEntities: "Hide entities",
-    entityCount: (n) => `${n} ${n !== 1 ? "entities" : "entity"}`,
-    dlgManufacturer: "Manufacturer",
-    dlgModel: "Model",
-    dlgIntegration: "Integration",
-    dlgArea: "Area",
-    dlgCreatedAt: "Added on",
-    dlgEntities: "Entities",
-    dlgNoEntities: "No entities.",
-    dlgShowDetails: "Show details",
-    dlgHideDetails: "Hide details",
-    dlgState: "State",
-    dlgLastSeen: "Last seen",
-    dlgAttributes: "Attributes",
-    dlgNoState: "No state available",
-    dlgLastSeenNote: (restartTime) => `⚠️ close to the last HA restart (${restartTime}) — the actual time could be older`,
-    dlgGoToDevice: "Go to device page",
-    dlgClose: "Close",
-    dlgLoading: "Loading details…",
-  },
-};
-
 class AreaManagerPanel extends HTMLElement {
   constructor() {
     super();
@@ -171,6 +6,7 @@ class AreaManagerPanel extends HTMLElement {
     this._areas = [];
     this._floors = [];
     this._entities = [];
+    this._i18n = null;
     this._ignoredIds = new Set();
     this._ignoredEntityIds = new Set();
     this._pending = {};
@@ -191,11 +27,18 @@ class AreaManagerPanel extends HTMLElement {
     this._sortDir = "asc"; // "asc" | "desc"
   }
 
-  _t(key, ...args) {
-    const lang = (this._hass?.language || "de").split("-")[0];
-    const dict = TRANSLATIONS[lang] || TRANSLATIONS["de"];
-    const val = dict[key];
-    return typeof val === "function" ? val(...args) : (val ?? key);
+  // Strings live in panel_translations/<lang>.json, fetched once in _load()
+  // via the area_manager/get_translations WS command (the server falls back
+  // to en.json for unknown languages). A value is either a template string
+  // ("{n} without area") or a {one, other} object for plural forms. Every
+  // template has at most one placeholder, so the single `arg` fills whatever
+  // placeholder the template declares, regardless of its name.
+  _t(key, arg) {
+    const val = this._i18n?.[key];
+    if (val === undefined) return key;
+    const template =
+      typeof val === "object" ? (arg === 1 ? val.one ?? val.other : val.other ?? val.one) : val;
+    return arg === undefined ? template : template.replace(/\{\w+\}/g, String(arg));
   }
 
   set hass(hass) {
@@ -219,6 +62,16 @@ class AreaManagerPanel extends HTMLElement {
     this._error = null;
     this._render();
     try {
+      // Fetched before the registry data (not inside the Promise.all below) so
+      // the "loading" state right after can already render translated - and
+      // only once, since a manual reload doesn't change the language.
+      if (!this._i18n) {
+        this._i18n = await this._hass.callWS({
+          type: "area_manager/get_translations",
+          language: this._hass.language || "en",
+        });
+        this._render();
+      }
       const [devices, areas, entities, floors, ignoredIds, ignoredEntityIds, setupTime] = await Promise.all([
         this._hass.callWS({ type: "config/device_registry/list" }),
         this._hass.callWS({ type: "config/area_registry/list" }),
@@ -242,7 +95,11 @@ class AreaManagerPanel extends HTMLElement {
       this._ignoredEntityIds = new Set(ignoredEntityIds);
       this._setupTime = setupTime;
     } catch (e) {
-      this._error = this._t("errorLoad", e.message);
+      // English fallback for the corner case where the translations fetch
+      // itself is what failed - _t() would only echo the raw key here.
+      this._error = this._i18n
+        ? this._t("errorLoad", e.message)
+        : `Error loading data: ${e.message}`;
     }
     this._render();
   }
@@ -553,7 +410,7 @@ class AreaManagerPanel extends HTMLElement {
     if (value === undefined || value === null || value === "") return "—";
     const date = typeof value === "number" ? new Date(value * 1000) : new Date(value);
     if (Number.isNaN(date.getTime())) return "—";
-    return date.toLocaleString(this._hass?.language || "de");
+    return date.toLocaleString(this._hass?.language || "en");
   }
 
   // "Last seen" timestamps get rewritten on every HA restart (the integration
@@ -1428,6 +1285,15 @@ class AreaManagerPanel extends HTMLElement {
   }
 
   _render() {
+    // Until the translations WS round-trip resolves there is nothing readable
+    // to render (every label would be a raw key) - except a load error, which
+    // _load() already words in plain English for exactly this state.
+    if (!this._i18n) {
+      this.shadowRoot.innerHTML = this._error
+        ? `<p style="padding: 16px; color: var(--error-color, #b71c1c);">${this._error}</p>`
+        : "";
+      return;
+    }
     const isDeviceKind = this._kind === "device";
     const sourceList = this._currentList();
     const ignoredSet = this._ignoredSet();

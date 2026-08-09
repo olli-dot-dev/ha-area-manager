@@ -32,7 +32,7 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes (English/Deutsch).
 - **Ignore list** — mark devices or entities that intentionally have no area (e.g. virtual/cloud-only devices, or automations that don't need one); revisit and restore them at any time
 - **Delete devices** — remove orphaned devices from the registry directly, with an inline confirmation step (devices only — see below)
 - **Persistent ignore list** — ignored IDs are stored in HA's `.storage` and survive restarts
-- **i18n** — UI available in German and English, follows your HA language setting
+- **i18n** — UI available in English, German and French, follows your HA language setting
 
 ## Devices vs. entities
 
@@ -143,8 +143,9 @@ Same three tabs for both **Devices** and **Entities** (the toggle switches which
 |----------|------|
 | German | `de` |
 | English | `en` (fallback) |
+| French | `fr` |
 
-Pull requests for additional languages are welcome — add a block to `TRANSLATIONS` in `area-manager-panel.js` and a matching file in `translations/`.
+Pull requests for additional languages are welcome — no code changes needed: add `panel_translations/<lang>.json` (panel UI, copy `en.json` as a template) and `translations/<lang>.json` (config flow).
 
 ## Contributing
 
