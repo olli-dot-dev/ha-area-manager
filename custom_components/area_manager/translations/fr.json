@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configurer Area Manager",
+        "description": "Ajoute un panneau dans la barre latérale pour assigner rapidement une pièce aux appareils qui n'en ont pas encore."
+      }
+    },
+    "abort": {
+      "already_configured": "Area Manager est déjà configuré."
+    }
+  }
+}

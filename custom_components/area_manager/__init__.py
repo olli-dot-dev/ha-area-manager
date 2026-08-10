@@ -1,3 +1,4 @@
+import json
 import logging
 from functools import partial
 from pathlib import Path
@@ -91,6 +92,32 @@ async def _ws_get_setup_time(hass: HomeAssistant, connection, msg) -> None:
     connection.send_result(msg["id"], hass.data[DOMAIN].get("setup_time"))
 
 
+def _read_panel_translations(language: str) -> dict:
+    # The panel is a custom web component, so it can't use HA's own translation
+    # pipeline (translations/ only feeds HA-rendered UI like the config flow).
+    # Its strings live in panel_translations/<lang>.json instead, served here.
+    base = Path(__file__).parent / "panel_translations"
+    lang = language.split("-")[0].lower()
+    # isalpha() also shields the path from traversal via a crafted "language".
+    if not lang.isalpha() or not (base / f"{lang}.json").is_file():
+        lang = "en"
+    return json.loads((base / f"{lang}.json").read_text(encoding="utf-8"))
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "area_manager/get_translations",
+        vol.Required("language"): str,
+    }
+)
+@websocket_api.async_response
+async def _ws_get_translations(hass: HomeAssistant, connection, msg) -> None:
+    translations = await hass.async_add_executor_job(
+        _read_panel_translations, msg["language"]
+    )
+    connection.send_result(msg["id"], translations)
+
+
 async def _serve_panel_js(path: str, request: web.Request) -> web.FileResponse:
     # cache_headers=False on async_register_static_paths (our previous approach)
     # doesn't mean "don't cache" - for a single file it just means no explicit
@@ -154,6 +181,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     websocket_api.async_register_command(hass, _ws_set_ignored_entities)
     websocket_api.async_register_command(hass, _ws_remove_device)
     websocket_api.async_register_command(hass, _ws_get_setup_time)
+    websocket_api.async_register_command(hass, _ws_get_translations)
 
     return True
 
