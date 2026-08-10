@@ -144,8 +144,10 @@ Same three tabs for both **Devices** and **Entities** (the toggle switches which
 | German | `de` |
 | English | `en` (fallback) |
 | French | `fr` |
+| Spanish | `es` |
+| Russian | `ru` |
 
-Pull requests for additional languages are welcome — no code changes needed: add `panel_translations/<lang>.json` (panel UI, copy `en.json` as a template) and `translations/<lang>.json` (config flow).
+Pull requests for additional languages are welcome — add `panel_translations/<lang>.json` (panel UI, copy `en.json` as a template) and `translations/<lang>.json` (config flow). No code changes needed for most languages; only if yours needs a plural rule beyond the default singular/plural split (`entityCount`'s `one`/`other`) - e.g. Slavic-style `one`/`few`/`many`, as Russian already has - does `_pluralCategory()` in `area-manager-panel.js` need a matching branch added.
 
 ## Contributing
 

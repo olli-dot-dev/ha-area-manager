@@ -92,16 +92,22 @@ async def _ws_get_setup_time(hass: HomeAssistant, connection, msg) -> None:
     connection.send_result(msg["id"], hass.data[DOMAIN].get("setup_time"))
 
 
-def _read_panel_translations(language: str) -> dict:
+def _read_panel_translations(language: str) -> tuple[str, dict]:
     # The panel is a custom web component, so it can't use HA's own translation
     # pipeline (translations/ only feeds HA-rendered UI like the config flow).
     # Its strings live in panel_translations/<lang>.json instead, served here.
+    # Returns the *resolved* language code alongside the dict (not just the
+    # dict) so the panel's own plural-category logic (see _t()/_pluralCategory()
+    # in area-manager-panel.js - e.g. Russian's one/few/many vs. the simpler
+    # one/other split most languages use) knows which rule actually applies,
+    # rather than duplicating the fallback/normalization logic client-side.
     base = Path(__file__).parent / "panel_translations"
     lang = language.split("-")[0].lower()
     # isalpha() also shields the path from traversal via a crafted "language".
     if not lang.isalpha() or not (base / f"{lang}.json").is_file():
         lang = "en"
-    return json.loads((base / f"{lang}.json").read_text(encoding="utf-8"))
+    strings = json.loads((base / f"{lang}.json").read_text(encoding="utf-8"))
+    return lang, strings
 
 
 @websocket_api.websocket_command(
@@ -112,10 +118,10 @@ def _read_panel_translations(language: str) -> dict:
 )
 @websocket_api.async_response
 async def _ws_get_translations(hass: HomeAssistant, connection, msg) -> None:
-    translations = await hass.async_add_executor_job(
+    lang, strings = await hass.async_add_executor_job(
         _read_panel_translations, msg["language"]
     )
-    connection.send_result(msg["id"], translations)
+    connection.send_result(msg["id"], {"lang": lang, "strings": strings})
 
 
 async def _serve_panel_js(path: str, request: web.Request) -> web.FileResponse:

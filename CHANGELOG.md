@@ -3,6 +3,16 @@
 All notable changes to Area Manager are documented here.
 Alle wesentlichen Änderungen an Area Manager werden hier dokumentiert.
 
+## [2.6.0] - 2026-08-10
+
+**English**
+- Added French (`fr`), Spanish (`es`) and Russian (`ru`) translations, alongside the existing German/English — both the panel UI and the config-flow setup dialog. Panel strings moved from an inline object in `area-manager-panel.js` into one `panel_translations/<lang>.json` file per language, served by a new `area_manager/get_translations` WS command; adding a language no longer requires touching the panel's code. Fixed the language fallback, which fell back to German for any unrecognized HA language while the README already documented English — both now consistently fall back to English (thanks **@Pulpyyyy** for the PR)
+- Entity counts now use each language's correct plural rule instead of a single hardcoded one/other split: Russian gets its three-way `one`/`few`/`many` form (1 объект / 2-4 объекта / 5+ объектов, with the usual 11-14 exception), and French correctly treats 0 the same as 1 (singular), matching how French actually pluralizes rather than English/German's rule of "only 1 is singular"
+
+**Deutsch**
+- Französisch (`fr`), Spanisch (`es`) und Russisch (`ru`) als Übersetzungen ergänzt, zusätzlich zu Deutsch/Englisch — sowohl die Panel-Oberfläche als auch der Einrichtungsdialog. Die Panel-Texte wanderten aus einem Inline-Objekt in `area-manager-panel.js` in je eine `panel_translations/<lang>.json`-Datei pro Sprache, ausgeliefert über ein neues `area_manager/get_translations`-WS-Kommando; eine neue Sprache braucht dadurch keine Code-Änderung am Panel mehr. Den Sprach-Fallback korrigiert, der bisher bei jeder nicht unterstützten HA-Sprache auf Deutsch zurückfiel, während die README schon Englisch dokumentierte — beides fällt jetzt konsistent auf Englisch zurück (danke **@Pulpyyyy** für die PR)
+- Die Entitäten-Anzahl nutzt jetzt die korrekte Pluralregel je Sprache statt einer einzigen fest codierten Singular/Plural-Unterscheidung: Russisch bekommt seine dreistufige `one`/`few`/`many`-Form (1 объект / 2-4 объекта / 5+ объектов, inkl. der üblichen 11-14-Ausnahme), und Französisch behandelt 0 korrekt wie 1 (Singular) - so wie im Französischen tatsächlich pluralisiert wird, anders als bei Deutsch/Englisch, wo nur 1 Singular ist
+
 ## [2.5.0] - 2026-08-02
 
 **English**

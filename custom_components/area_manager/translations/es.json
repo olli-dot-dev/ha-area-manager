@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configurar Area Manager",
+        "description": "Añade un panel en la barra lateral para asignar rápidamente un área a los dispositivos que aún no tienen una."
+      }
+    },
+    "abort": {
+      "already_configured": "Area Manager ya está configurado."
+    }
+  }
+}

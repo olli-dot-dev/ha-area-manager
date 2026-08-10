@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Настройка Area Manager",
+        "description": "Добавляет панель в боковую панель для быстрого назначения зоны устройствам, у которых её ещё нет."
+      }
+    },
+    "abort": {
+      "already_configured": "Area Manager уже настроен."
+    }
+  }
+}

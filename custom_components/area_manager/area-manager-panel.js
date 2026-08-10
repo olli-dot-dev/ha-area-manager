@@ -7,6 +7,7 @@ class AreaManagerPanel extends HTMLElement {
     this._floors = [];
     this._entities = [];
     this._i18n = null;
+    this._lang = null; // resolved language code from the WS response (e.g. "ru"), drives _pluralCategory()
     this._ignoredIds = new Set();
     this._ignoredEntityIds = new Set();
     this._pending = {};
@@ -29,16 +30,50 @@ class AreaManagerPanel extends HTMLElement {
 
   // Strings live in panel_translations/<lang>.json, fetched once in _load()
   // via the area_manager/get_translations WS command (the server falls back
-  // to en.json for unknown languages). A value is either a template string
-  // ("{n} without area") or a {one, other} object for plural forms. Every
-  // template has at most one placeholder, so the single `arg` fills whatever
-  // placeholder the template declares, regardless of its name.
+  // to en.json for unknown languages and also reports which language it
+  // resolved to, stored in this._lang - see _pluralCategory()). A value is
+  // either a template string ("{n} without area") or a {category: template}
+  // object for plural forms. Every template has at most one placeholder, so
+  // the single `arg` fills whatever placeholder the template declares,
+  // regardless of its name.
   _t(key, arg) {
     const val = this._i18n?.[key];
     if (val === undefined) return key;
-    const template =
-      typeof val === "object" ? (arg === 1 ? val.one ?? val.other : val.other ?? val.one) : val;
+    let template;
+    if (typeof val === "object") {
+      const category = arg === undefined ? "other" : this._pluralCategory(arg);
+      // Fall back through the categories every language we ship at least
+      // defines (other/one) in case a given key is missing the exact
+      // category this language/count needs.
+      template = val[category] ?? val.other ?? val.many ?? val.few ?? val.one;
+    } else {
+      template = val;
+    }
     return arg === undefined ? template : template.replace(/\{\w+\}/g, String(arg));
+  }
+
+  // CLDR-style plural category for the current language (this._lang, set in
+  // _load() from the WS response) - which category names actually occur
+  // depends on the language, see panel_translations/*.json:
+  //   - ru: three-way (one/few/many) - own mod10/mod100 rule, e.g. 1 объект
+  //     / 2-4 объекта / 0,5-20,25-30... объектов (with the 11-14 exception,
+  //     since those end in 1-4 but still take "many").
+  //   - fr: French groups 0 *and* 1 into "one" (e.g. "0 entité", not
+  //     "0 entités") - unlike German/English, where 0 counts as plural.
+  //   - everything else (de/en/es, and any future/unrecognised language):
+  //     the common simple split, only exactly 1 is "one".
+  _pluralCategory(n) {
+    if (this._lang === "ru") {
+      const mod10 = n % 10;
+      const mod100 = n % 100;
+      if (mod10 === 1 && mod100 !== 11) return "one";
+      if ([2, 3, 4].includes(mod10) && ![12, 13, 14].includes(mod100)) return "few";
+      return "many";
+    }
+    if (this._lang === "fr") {
+      return n === 0 || n === 1 ? "one" : "other";
+    }
+    return n === 1 ? "one" : "other";
   }
 
   set hass(hass) {
@@ -66,10 +101,12 @@ class AreaManagerPanel extends HTMLElement {
       // the "loading" state right after can already render translated - and
       // only once, since a manual reload doesn't change the language.
       if (!this._i18n) {
-        this._i18n = await this._hass.callWS({
+        const { lang, strings } = await this._hass.callWS({
           type: "area_manager/get_translations",
           language: this._hass.language || "en",
         });
+        this._lang = lang;
+        this._i18n = strings;
         this._render();
       }
       const [devices, areas, entities, floors, ignoredIds, ignoredEntityIds, setupTime] = await Promise.all([
