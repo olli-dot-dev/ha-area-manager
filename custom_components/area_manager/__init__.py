@@ -23,6 +23,7 @@ _STORAGE_VERSION = 1
 
 
 @websocket_api.websocket_command({vol.Required("type"): "area_manager/get_ignored"})
+@websocket_api.require_admin
 @websocket_api.async_response
 async def _ws_get_ignored(hass: HomeAssistant, connection, msg) -> None:
     store: Store = hass.data[DOMAIN]["store"]
@@ -36,6 +37,7 @@ async def _ws_get_ignored(hass: HomeAssistant, connection, msg) -> None:
         vol.Required("device_ids"): [str],
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def _ws_set_ignored(hass: HomeAssistant, connection, msg) -> None:
     store: Store = hass.data[DOMAIN]["store"]
@@ -46,6 +48,7 @@ async def _ws_set_ignored(hass: HomeAssistant, connection, msg) -> None:
 
 
 @websocket_api.websocket_command({vol.Required("type"): "area_manager/get_ignored_entities"})
+@websocket_api.require_admin
 @websocket_api.async_response
 async def _ws_get_ignored_entities(hass: HomeAssistant, connection, msg) -> None:
     store: Store = hass.data[DOMAIN]["store"]
@@ -59,6 +62,7 @@ async def _ws_get_ignored_entities(hass: HomeAssistant, connection, msg) -> None
         vol.Required("entity_ids"): [str],
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def _ws_set_ignored_entities(hass: HomeAssistant, connection, msg) -> None:
     # Same Store/file as device ignores, separate key - no migration needed,
@@ -76,6 +80,7 @@ async def _ws_set_ignored_entities(hass: HomeAssistant, connection, msg) -> None
         vol.Required("device_id"): str,
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def _ws_remove_device(hass: HomeAssistant, connection, msg) -> None:
     registry = dr.async_get(hass)
@@ -87,6 +92,7 @@ async def _ws_remove_device(hass: HomeAssistant, connection, msg) -> None:
 
 
 @websocket_api.websocket_command({vol.Required("type"): "area_manager/get_setup_time"})
+@websocket_api.require_admin
 @websocket_api.async_response
 async def _ws_get_setup_time(hass: HomeAssistant, connection, msg) -> None:
     connection.send_result(msg["id"], hass.data[DOMAIN].get("setup_time"))
@@ -116,6 +122,7 @@ def _read_panel_translations(language: str) -> tuple[str, dict]:
         vol.Required("language"): str,
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def _ws_get_translations(hass: HomeAssistant, connection, msg) -> None:
     lang, strings = await hass.async_add_executor_job(

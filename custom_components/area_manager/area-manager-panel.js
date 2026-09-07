@@ -1,3 +1,20 @@
+// Device/entity names, manufacturer/model, area/floor names, and entity
+// attribute values all originate from data the device itself reports to its
+// integration (Zigbee/BLE/mDNS/UPnP/MQTT discovery, ...) or from users
+// without admin rights - none of it is trustworthy markup. Every place below
+// that concatenates such a value into an innerHTML template literal runs it
+// through this first, whether the value lands in element content or inside
+// a quoted HTML attribute.
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  }[c]));
+}
+
 class AreaManagerPanel extends HTMLElement {
   constructor() {
     super();
@@ -308,7 +325,7 @@ class AreaManagerPanel extends HTMLElement {
       ? `<option value="${AreaManagerPanel.UNASSIGN_SENTINEL}" ${currentAreaId === AreaManagerPanel.UNASSIGN_SENTINEL ? "selected" : ""}>${this._t("unassignOption")}</option>`
       : "";
     const areaOptions = this._areas
-      .map((a) => `<option value="${a.area_id}" ${a.area_id === currentAreaId ? "selected" : ""}>${a.name}</option>`)
+      .map((a) => `<option value="${a.area_id}" ${a.area_id === currentAreaId ? "selected" : ""}>${escapeHtml(a.name)}</option>`)
       .join("");
     const create = `<option value="${AreaManagerPanel.CREATE_SENTINEL}">${this._t("createAreaOption")}</option>`;
     return `${placeholder}${unassign}${areaOptions}${create}`;
@@ -351,7 +368,7 @@ class AreaManagerPanel extends HTMLElement {
     if (existing) existing.remove();
 
     const floorOptions = this._floors
-      .map((f) => `<option value="${f.floor_id}">${f.name}</option>`)
+      .map((f) => `<option value="${f.floor_id}">${escapeHtml(f.name)}</option>`)
       .join("");
 
     const dlg = document.createElement("dialog");
@@ -635,7 +652,7 @@ class AreaManagerPanel extends HTMLElement {
     dlg.innerHTML = `
       <div class="dlg-header">
         <div class="dlg-title-row">
-          <h2 class="dlg-title" id="dlg-title-text">${label}</h2>
+          <h2 class="dlg-title" id="dlg-title-text">${escapeHtml(label)}</h2>
           <button class="btn-rename" id="dlg-rename" title="${this._t("renameTitle")}">✏️</button>
         </div>
         <button class="dlg-close" id="dlg-close" title="${this._t("dlgClose")}">✕</button>
@@ -643,10 +660,10 @@ class AreaManagerPanel extends HTMLElement {
       <div class="dlg-body">
         <p class="dlg-rename-error" id="dlg-rename-error" style="display:none"></p>
         <dl class="dlg-grid">
-          ${device.manufacturer ? `<dt>${this._t("dlgManufacturer")}</dt><dd>${device.manufacturer}</dd>` : ""}
-          ${device.model ? `<dt>${this._t("dlgModel")}</dt><dd>${device.model}</dd>` : ""}
-          <dt>${this._t("dlgIntegration")}</dt><dd><span class="dlg-chip">${domain}</span></dd>
-          <dt>${this._t("dlgArea")}</dt><dd>${areaName}</dd>
+          ${device.manufacturer ? `<dt>${this._t("dlgManufacturer")}</dt><dd>${escapeHtml(device.manufacturer)}</dd>` : ""}
+          ${device.model ? `<dt>${this._t("dlgModel")}</dt><dd>${escapeHtml(device.model)}</dd>` : ""}
+          <dt>${this._t("dlgIntegration")}</dt><dd><span class="dlg-chip">${escapeHtml(domain)}</span></dd>
+          <dt>${this._t("dlgArea")}</dt><dd>${escapeHtml(areaName)}</dd>
           ${device.created_at ? `<dt>${this._t("dlgCreatedAt")}</dt><dd>${this._formatTimestamp(device.created_at)}</dd>` : ""}
           ${deviceLastSeen ? `<dt>${this._t("dlgLastSeen")}</dt><dd>${this._formatTimestamp(deviceLastSeen)}${this._lastSeenNote(deviceLastSeen) ? `<div class="dlg-lastseen-note">${this._lastSeenNote(deviceLastSeen)}</div>` : ""}</dd>` : ""}
         </dl>
@@ -797,16 +814,16 @@ class AreaManagerPanel extends HTMLElement {
         const entityLastSeenNote = this._lastSeenNote(entityLastSeen);
         const detailHtml = stateObj
           ? `<dl class="dlg-grid dlg-entity-grid">
-              <dt>${this._t("dlgState")}</dt><dd>${stateObj.state}</dd>
-              <dt>${this._t("dlgLastSeen")}</dt><dd>${this._formatTimestamp(entityLastSeen)}${entityLastSeenNote ? `<div class="dlg-lastseen-note">${entityLastSeenNote}</div>` : ""}</dd>
+              <dt>${this._t("dlgState")}</dt><dd>${escapeHtml(stateObj.state)}</dd>
+              <dt>${this._t("dlgLastSeen")}</dt><dd>${this._formatTimestamp(entityLastSeen)}${entityLastSeenNote ? `<div class="dlg-lastseen-note">${escapeHtml(entityLastSeenNote)}</div>` : ""}</dd>
               ${Object.entries(stateObj.attributes || {}).map(([k, v]) =>
-                `<dt>${k}</dt><dd>${typeof v === "object" && v !== null ? JSON.stringify(v) : v}</dd>`
+                `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(typeof v === "object" && v !== null ? JSON.stringify(v) : v)}</dd>`
               ).join("")}
             </dl>`
           : `<p class="dlg-entity-no-state">${this._t("dlgNoState")}</p>`;
         return `<li>
-          ${name ? `<span class="dlg-entity-name">${name}</span>` : ""}
-          <span class="dlg-entity-id">${e.entity_id}</span>
+          ${name ? `<span class="dlg-entity-name">${escapeHtml(name)}</span>` : ""}
+          <span class="dlg-entity-id">${escapeHtml(e.entity_id)}</span>
           <div class="dlg-entity-detail">${detailHtml}</div>
         </li>`;
       }).join("");
@@ -852,16 +869,16 @@ class AreaManagerPanel extends HTMLElement {
     dlg.innerHTML = `
       <div class="dlg-header">
         <div class="dlg-title-row">
-          <h2 class="dlg-title">${label}</h2>
+          <h2 class="dlg-title">${escapeHtml(label)}</h2>
         </div>
         <button class="dlg-close" id="dlg-close" title="${this._t("dlgClose")}">✕</button>
       </div>
       <div class="dlg-body">
         <dl class="dlg-grid">
-          <dt>${this._t("dlgIntegration")}</dt><dd><span class="dlg-chip">${domain}</span></dd>
-          <dt>${this._t("dlgArea")}</dt><dd>${areaName}</dd>
-          <dt>${this._t("dlgEntityId")}</dt><dd><span class="dlg-chip">${entity.entity_id}</span></dd>
-          ${stateObj ? `<dt>${this._t("dlgState")}</dt><dd>${stateObj.state}</dd>` : ""}
+          <dt>${this._t("dlgIntegration")}</dt><dd><span class="dlg-chip">${escapeHtml(domain)}</span></dd>
+          <dt>${this._t("dlgArea")}</dt><dd>${escapeHtml(areaName)}</dd>
+          <dt>${this._t("dlgEntityId")}</dt><dd><span class="dlg-chip">${escapeHtml(entity.entity_id)}</span></dd>
+          ${stateObj ? `<dt>${this._t("dlgState")}</dt><dd>${escapeHtml(stateObj.state)}</dd>` : ""}
           ${lastSeen ? `<dt>${this._t("dlgLastSeen")}</dt><dd>${this._formatTimestamp(lastSeen)}${lastSeenNote ? `<div class="dlg-lastseen-note">${lastSeenNote}</div>` : ""}</dd>` : ""}
         </dl>
         <div class="dlg-actions">
@@ -1040,8 +1057,8 @@ class AreaManagerPanel extends HTMLElement {
           devEntities.map((e) => {
             const name = e.name || e.original_name;
             return `<div class="entity-row">
-              ${name ? `<span class="entity-row-name">${name}</span>` : ""}
-              <span class="entity-row-id">${e.entity_id}</span>
+              ${name ? `<span class="entity-row-name">${escapeHtml(name)}</span>` : ""}
+              <span class="entity-row-id">${escapeHtml(e.entity_id)}</span>
             </div>`;
           }).join("")
         }</div>
@@ -1074,7 +1091,7 @@ class AreaManagerPanel extends HTMLElement {
             <button class="btn-confirm-no" data-device="${d.id}">${this._t("confirmNo")}</button>
           </td>`
         : `<td class="cell-area">
-            ${suggestion ? `<button class="suggest-badge" data-device="${d.id}" data-area="${suggestion.area_id}" title="${this._t("suggestTitle", suggestion.name)}">${this._t("suggestBadge", suggestion.name)}</button>` : ""}
+            ${suggestion ? `<button class="suggest-badge" data-device="${d.id}" data-area="${suggestion.area_id}" title="${this._t("suggestTitle", escapeHtml(suggestion.name))}">${this._t("suggestBadge", escapeHtml(suggestion.name))}</button>` : ""}
             <select class="area-select" data-device="${d.id}" data-current-area="">
               ${areaOptions}
             </select>
@@ -1090,20 +1107,20 @@ class AreaManagerPanel extends HTMLElement {
       return `
         <tr class="device-row${isConfirming ? " device-row--confirming" : ""}"
             data-device-id="${d.id}"
-            data-name="${label}"
-            data-manufacturer="${d.manufacturer || ""}"
-            data-domain="${domain}"
-            data-sub="${sub}"
-            data-entities="${entitiesText}">
+            data-name="${escapeHtml(label)}"
+            data-manufacturer="${escapeHtml(d.manufacturer || "")}"
+            data-domain="${escapeHtml(domain)}"
+            data-sub="${escapeHtml(sub)}"
+            data-entities="${escapeHtml(entitiesText)}">
           <td class="cell-checkbox">
             <input type="checkbox" class="row-checkbox" data-device="${d.id}" ${this._selected.has(d.id) ? "checked" : ""}>
           </td>
           <td class="cell-name">
-            <div class="device-name">${label}</div>
-            ${sub ? `<div class="device-sub">${sub}</div>` : ""}
+            <div class="device-name">${escapeHtml(label)}</div>
+            ${sub ? `<div class="device-sub">${escapeHtml(sub)}</div>` : ""}
           </td>
           <td class="cell-integration">
-            ${domain ? `<span class="domain-chip">${domain}</span>` : `<span class="domain-chip muted">—</span>`}
+            ${domain ? `<span class="domain-chip">${escapeHtml(domain)}</span>` : `<span class="domain-chip muted">—</span>`}
           </td>
           ${this._renderEntityCell(d)}
           ${actionCell}
@@ -1130,20 +1147,20 @@ class AreaManagerPanel extends HTMLElement {
       return `
         <tr class="device-row"
             data-device-id="${d.id}"
-            data-name="${label}"
-            data-manufacturer="${d.manufacturer || ""}"
-            data-domain="${domain}"
-            data-sub="${sub}"
-            data-entities="${entitiesText}">
+            data-name="${escapeHtml(label)}"
+            data-manufacturer="${escapeHtml(d.manufacturer || "")}"
+            data-domain="${escapeHtml(domain)}"
+            data-sub="${escapeHtml(sub)}"
+            data-entities="${escapeHtml(entitiesText)}">
           <td class="cell-checkbox">
             <input type="checkbox" class="row-checkbox" data-device="${d.id}" ${this._selected.has(d.id) ? "checked" : ""}>
           </td>
           <td class="cell-name">
-            <div class="device-name">${label}</div>
-            ${sub ? `<div class="device-sub">${sub}</div>` : ""}
+            <div class="device-name">${escapeHtml(label)}</div>
+            ${sub ? `<div class="device-sub">${escapeHtml(sub)}</div>` : ""}
           </td>
           <td class="cell-integration">
-            ${domain ? `<span class="domain-chip">${domain}</span>` : `<span class="domain-chip muted">—</span>`}
+            ${domain ? `<span class="domain-chip">${escapeHtml(domain)}</span>` : `<span class="domain-chip muted">—</span>`}
           </td>
           ${this._renderEntityCell(d)}
           <td class="cell-area">
@@ -1170,17 +1187,17 @@ class AreaManagerPanel extends HTMLElement {
       const entitiesText = this._entitiesText(d);
 
       return `
-        <tr class="device-row" data-device-id="${d.id}" data-entities="${entitiesText}">
+        <tr class="device-row" data-device-id="${d.id}" data-entities="${escapeHtml(entitiesText)}">
           <td class="cell-name">
-            <div class="device-name">${label}</div>
-            ${sub ? `<div class="device-sub">${sub}</div>` : ""}
+            <div class="device-name">${escapeHtml(label)}</div>
+            ${sub ? `<div class="device-sub">${escapeHtml(sub)}</div>` : ""}
           </td>
           <td class="cell-integration">
-            ${domain ? `<span class="domain-chip">${domain}</span>` : `<span class="domain-chip muted">—</span>`}
+            ${domain ? `<span class="domain-chip">${escapeHtml(domain)}</span>` : `<span class="domain-chip muted">—</span>`}
           </td>
           ${this._renderEntityCell(d)}
           <td class="cell-area">
-            <span class="area-label ${!d.area_id ? "muted" : ""}">${areaLabel}</span>
+            <span class="area-label ${!d.area_id ? "muted" : ""}">${escapeHtml(areaLabel)}</span>
           </td>
           <td class="cell-actions">
             <button class="btn-unignore" data-device="${d.id}">${this._t("unignore")}</button>
@@ -1206,18 +1223,18 @@ class AreaManagerPanel extends HTMLElement {
       return `
         <tr class="device-row"
             data-device-id="${e.entity_id}"
-            data-name="${label}"
-            data-domain="${domain}"
-            data-sub="${e.entity_id}">
+            data-name="${escapeHtml(label)}"
+            data-domain="${escapeHtml(domain)}"
+            data-sub="${escapeHtml(e.entity_id)}">
           <td class="cell-checkbox">
             <input type="checkbox" class="row-checkbox" data-device="${e.entity_id}" ${this._selected.has(e.entity_id) ? "checked" : ""}>
           </td>
           <td class="cell-name">
-            <div class="device-name">${label}</div>
-            <div class="device-sub">${e.entity_id}</div>
+            <div class="device-name">${escapeHtml(label)}</div>
+            <div class="device-sub">${escapeHtml(e.entity_id)}</div>
           </td>
           <td class="cell-integration">
-            <span class="domain-chip">${domain}</span>
+            <span class="domain-chip">${escapeHtml(domain)}</span>
           </td>
           <td class="cell-area">
             <select class="area-select" data-device="${e.entity_id}" data-current-area="">
@@ -1251,18 +1268,18 @@ class AreaManagerPanel extends HTMLElement {
       return `
         <tr class="device-row"
             data-device-id="${e.entity_id}"
-            data-name="${label}"
-            data-domain="${domain}"
-            data-sub="${e.entity_id}">
+            data-name="${escapeHtml(label)}"
+            data-domain="${escapeHtml(domain)}"
+            data-sub="${escapeHtml(e.entity_id)}">
           <td class="cell-checkbox">
             <input type="checkbox" class="row-checkbox" data-device="${e.entity_id}" ${this._selected.has(e.entity_id) ? "checked" : ""}>
           </td>
           <td class="cell-name">
-            <div class="device-name">${label}</div>
-            <div class="device-sub">${e.entity_id}</div>
+            <div class="device-name">${escapeHtml(label)}</div>
+            <div class="device-sub">${escapeHtml(e.entity_id)}</div>
           </td>
           <td class="cell-integration">
-            <span class="domain-chip">${domain}</span>
+            <span class="domain-chip">${escapeHtml(domain)}</span>
           </td>
           <td class="cell-area">
             <select class="area-select" data-device="${e.entity_id}" data-current-area="${currentArea}">
@@ -1288,14 +1305,14 @@ class AreaManagerPanel extends HTMLElement {
       return `
         <tr class="device-row" data-device-id="${e.entity_id}">
           <td class="cell-name">
-            <div class="device-name">${label}</div>
-            <div class="device-sub">${e.entity_id}</div>
+            <div class="device-name">${escapeHtml(label)}</div>
+            <div class="device-sub">${escapeHtml(e.entity_id)}</div>
           </td>
           <td class="cell-integration">
-            <span class="domain-chip">${domain}</span>
+            <span class="domain-chip">${escapeHtml(domain)}</span>
           </td>
           <td class="cell-area">
-            <span class="area-label ${!e.area_id ? "muted" : ""}">${areaLabel}</span>
+            <span class="area-label ${!e.area_id ? "muted" : ""}">${escapeHtml(areaLabel)}</span>
           </td>
           <td class="cell-actions">
             <button class="btn-unignore" data-device="${e.entity_id}">${this._t("unignore")}</button>

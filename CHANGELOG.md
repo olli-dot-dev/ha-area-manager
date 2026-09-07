@@ -3,6 +3,16 @@
 All notable changes to Area Manager are documented here.
 Alle wesentlichen Änderungen an Area Manager werden hier dokumentiert.
 
+## [2.6.1] - 2026-09-07
+
+**English**
+- Fixed missing admin authorization on all seven `area_manager` WebSocket commands (`get_ignored`, `set_ignored`, `get_ignored_entities`, `set_ignored_entities`, `remove_device`, `get_setup_time`, `get_translations`). The panel itself has always been admin-only, but that only hid it from a non-admin's sidebar — it never protected the underlying commands, so any authenticated non-admin user (e.g. a restricted family member account) could call them directly, including deleting arbitrary devices via `remove_device`. All seven now require admin, matching the panel
+- Fixed a stored XSS vulnerability: device/entity names, `name_by_user`, manufacturer/model, area/floor names, and entity state/attribute values were inserted into the panel's UI unescaped. Since names in particular commonly come from data the device itself reports to its integration (Zigbee, Bluetooth, mDNS, UPnP, MQTT discovery, ...), a crafted name could run arbitrary script in an admin's browser the moment they opened the panel's device list — no click into a detail view required. Every such value is now HTML-escaped before rendering. Both issues found and verified end-to-end (including a real non-admin account against a running instance) during a security review, not reported by a user
+
+**Deutsch**
+- Fehlende Admin-Prüfung auf allen sieben `area_manager`-WebSocket-Kommandos behoben (`get_ignored`, `set_ignored`, `get_ignored_entities`, `set_ignored_entities`, `remove_device`, `get_setup_time`, `get_translations`). Das Panel selbst war schon immer admin-only, aber das hat es nur für Nicht-Admins aus der Sidebar ausgeblendet — die dahinterliegenden Kommandos waren dadurch nie geschützt, sodass jeder eingeloggte Nicht-Admin-Nutzer (z. B. ein eingeschränkter Familien-Account) sie direkt aufrufen konnte, inklusive Löschen beliebiger Geräte über `remove_device`. Alle sieben verlangen jetzt Admin-Rechte, passend zum Panel
+- Eine Stored-XSS-Lücke behoben: Geräte-/Entity-Namen, `name_by_user`, Hersteller/Modell, Bereichs-/Etagen-Namen sowie Entity-State- und Attributwerte wurden ungefiltert in die Panel-Oberfläche eingefügt. Da insbesondere Namen häufig aus Daten stammen, die das Gerät selbst an seine Integration meldet (Zigbee, Bluetooth, mDNS, UPnP, MQTT-Discovery, …), konnte ein präparierter Name beliebigen Code im Browser eines Admins ausführen, sobald dieser die Geräteliste im Panel öffnete — ganz ohne Klick in eine Detailansicht. Jeder solche Wert wird jetzt vor der Anzeige HTML-escaped. Beide Probleme wurden im Rahmen eines Sicherheitschecks gefunden und Ende-zu-Ende verifiziert (inkl. echtem Nicht-Admin-Account gegen eine laufende Instanz), nicht von einem Nutzer gemeldet
+
 ## [2.6.0] - 2026-08-10
 
 **English**
